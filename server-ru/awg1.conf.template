@@ -1,0 +1,6 @@
+# Deprecated placeholder.
+# v2 uplink flow does not render this template.
+# Generate a normal AWG client config on AM/exit and copy it to RU as:
+#   /etc/amnezia/amneziawg/awg1.conf
+# or use:
+#   scripts/vpnchain-bootstrap.sh --role ru --ru-uplink-conf /etc/vpnchain/ru-awg1.conf --apply

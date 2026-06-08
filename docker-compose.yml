@@ -1,0 +1,75 @@
+services:
+  server-ru:
+    profiles:
+      - ru
+    build:
+      context: .
+      dockerfile: shared/Dockerfile
+    container_name: awg-ru
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    network_mode: host
+    volumes:
+      - ./server-ru/entrypoint.sh:/entrypoint.sh
+      - ./server-ru/awg0.conf.template:/config/awg0.conf.template:ro
+      - ./server-ru/ru-domains.txt:/config/ru-domains.txt:ro
+      - server-ru-keys:/etc/amnezia/amneziawg
+    environment:
+      # awg1.conf для RU uplink поставляется готовым файлом, сгенерированным на AM.
+      # Ключ клиента для Peer-секции awg0
+      - CLIENT_PUB_KEY
+      - CLIENT2_PUB_KEY
+      - CLIENT3_PUB_KEY
+      - CLIENT4_PUB_KEY
+      - CLIENT5_PUB_KEY
+      - CLIENT6_PUB_KEY
+      - CLIENT7_PUB_KEY
+      - CLIENT8_PUB_KEY
+      - CLIENT9_PUB_KEY
+      - CLIENT10_PUB_KEY
+      - CLIENT11_PUB_KEY
+      - CLIENT12_PUB_KEY
+      - CLIENT13_PUB_KEY
+      - CLIENT14_PUB_KEY
+      - CLIENT15_PUB_KEY
+      - CLIENT16_PUB_KEY
+      - CLIENT17_PUB_KEY
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "awg", "show", "awg0"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  server-am:
+    profiles:
+      - am
+    build:
+      context: .
+      dockerfile: shared/Dockerfile
+    container_name: awg-am
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    network_mode: host
+    volumes:
+      - ./server-am/entrypoint.sh:/entrypoint.sh
+      - ./server-am/awg0.conf.template:/config/awg0.conf.template:ro
+      - server-am-keys:/etc/amnezia/amneziawg
+    environment:
+      # Ключ Сервера РФ для Peer-секции awg0
+      - RU_PUB_KEY
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "awg", "show", "awg0"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  server-ru-keys:
+  server-am-keys:
+

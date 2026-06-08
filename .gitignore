@@ -1,0 +1,30 @@
+.claude/
+CODE_REVIEW.md
+
+# Исключаем конфигурационные файлы (кроме шаблонов)
+*.conf
+!*.conf.template
+
+# Исключаем всевозможные ключи (публичные и приватные)
+*.key
+*.pub
+*_private_key
+*_public_key
+
+# Исключаем файлы окружения с секретами
+.env
+.env.*
+
+# v2 manager runtime artifacts
+*.sqlite
+*.sqlite3
+*.db
+backups/
+generated/
+tmp/
+client*.conf
+*client*.conf
+
+__pycache__/
+.pytest_cache/
+*.py[cod]

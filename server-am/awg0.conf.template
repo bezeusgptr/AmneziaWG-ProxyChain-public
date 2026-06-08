@@ -1,0 +1,26 @@
+# Конфигурация интерфейса (Сервер Армения)
+[Interface]
+PrivateKey = ${SERVER_PRIV_KEY}
+Address = 10.9.0.1/24
+ListenPort = 51821
+MTU = 1280
+
+# AmneziaWG маскировка
+Jc = 4
+Jmin = 50
+Jmax = 1000
+S1 = 80
+S2 = 120
+H1 = 1
+H2 = 2
+H3 = 3
+H4 = 4
+
+# NAT для выпуска трафика в интернет
+PostUp = iptables -A FORWARD -i awg0 -j ACCEPT; iptables -A FORWARD -o awg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+PostDown = iptables -D FORWARD -i awg0 -j ACCEPT; iptables -D FORWARD -o awg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+
+# Пир (Сервер РФ)
+[Peer]
+PublicKey = ${RU_PUB_KEY}
+AllowedIPs = 10.9.0.2/32

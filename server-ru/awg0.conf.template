@@ -1,0 +1,105 @@
+# Конфигурация интерфейса (Сервер РФ)
+[Interface]
+PrivateKey = ${SERVER_PRIV_KEY}
+Address = 10.8.0.1/24
+ListenPort = 51820
+MTU = 1280
+
+# AmneziaWG маскировка для обхода DPI
+Jc = 4
+Jmin = 50
+Jmax = 1000
+S1 = 80
+S2 = 120
+H1 = 1
+H2 = 2
+H3 = 3
+H4 = 4
+
+# Настройка NAT и маршрутизации обрабатывается в entrypoint.sh
+
+# Слот 1 (Клиент)
+[Peer]
+PublicKey = ${CLIENT_PUB_KEY}
+AllowedIPs = 10.8.0.2/32
+
+# Слот 2 (Дополнительный клиент)
+[Peer]
+PublicKey = ${CLIENT2_PUB_KEY}
+AllowedIPs = 10.8.0.3/32
+
+# Слот 3 (Дополнительный клиент)
+[Peer]
+PublicKey = ${CLIENT3_PUB_KEY}
+AllowedIPs = 10.8.0.4/32
+
+# Слот 4 (Дополнительный клиент)
+[Peer]
+PublicKey = ${CLIENT4_PUB_KEY}
+AllowedIPs = 10.8.0.5/32
+
+# Слот 5 (Дополнительный клиент)
+[Peer]
+PublicKey = ${CLIENT5_PUB_KEY}
+AllowedIPs = 10.8.0.6/32
+
+# Слот 6 (Дополнительный клиент)
+[Peer]
+PublicKey = ${CLIENT6_PUB_KEY}
+AllowedIPs = 10.8.0.7/32
+
+# Слот 7 (Дополнительный клиент)
+[Peer]
+PublicKey = ${CLIENT7_PUB_KEY}
+AllowedIPs = 10.8.0.8/32
+
+# Слот 8 (Tersa_mobile)
+[Peer]
+PublicKey = ${CLIENT8_PUB_KEY}
+AllowedIPs = 10.8.0.9/32
+
+# Слот 9 (Grox_mobile)
+[Peer]
+PublicKey = ${CLIENT9_PUB_KEY}
+AllowedIPs = 10.8.0.10/32
+
+# Слот 10 (Rostov_home)
+[Peer]
+PublicKey = ${CLIENT10_PUB_KEY}
+AllowedIPs = 10.8.0.11/32
+
+
+# Слот 11 (Дополнительный клиент)
+[Peer]
+PublicKey = ${CLIENT11_PUB_KEY}
+AllowedIPs = 10.8.0.12/32
+
+# Слот 12 (Дополнительный клиент)
+[Peer]
+PublicKey = ${CLIENT12_PUB_KEY}
+AllowedIPs = 10.8.0.13/32
+
+# Слот 13 (Дополнительный клиент)
+[Peer]
+PublicKey = ${CLIENT13_PUB_KEY}
+AllowedIPs = ${CLIENT13_ALLOWED_IPS:-10.8.0.13/32}
+
+# Слот 14 (Дополнительный клиент)
+[Peer]
+PublicKey = ${CLIENT14_PUB_KEY}
+AllowedIPs = 10.8.0.15/32
+
+# Слот 15 (Дополнительный клиент)
+[Peer]
+PublicKey = ${CLIENT15_PUB_KEY}
+AllowedIPs = 10.8.0.16/32
+
+# Слот 16 (Дополнительный клиент)
+[Peer]
+PublicKey = ${CLIENT16_PUB_KEY}
+AllowedIPs = 10.8.0.17/32
+
+# Слот 17 (Дополнительный клиент)
+[Peer]
+PublicKey = ${CLIENT17_PUB_KEY}
+AllowedIPs = 10.8.0.18/32

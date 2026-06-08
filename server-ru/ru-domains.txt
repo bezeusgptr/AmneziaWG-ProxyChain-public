@@ -1,0 +1,5 @@
+# Russian resources that must use RU egress even when their current A/AAAA
+# records point to non-RU hosting or CDN networks. dnsmasq adds resolved IPs
+# for these domains to the ru_domains ipset.
+2ip.ru
+www.2ip.ru
