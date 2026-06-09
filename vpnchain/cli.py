@@ -22,6 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
     web.add_argument('--port', type=int, default=8080)
     web.add_argument('--interface', help='wg/awg interface for live activity, e.g. awg0')
     web.add_argument('--activity-tool', default='wg', choices=('wg', 'awg'))
+    web.add_argument('--activity-command', action='append', default=[], help='Override activity command prefix, repeatable; example: --activity-command docker --activity-command exec --activity-command awg-ru --activity-command awg')
     web.add_argument('--remote', help='SSH target for active v2 server, e.g. vpnchain-ru')
     web.add_argument('--remote-db', default='/var/lib/vpnchain/vpnchain.sqlite', help='SQLite DB path on the remote server')
     web.add_argument('--remote-vpnchain', default='vpnchain', help='vpnchain command path on the remote server')
@@ -78,6 +79,7 @@ def main(argv: list[str] | None = None) -> int:
             remote_vpnchain=args.remote_vpnchain,
             ssh_options=_split_ssh_options(args.ssh_option),
             manager_command=args.manager_command,
+            activity_command=args.activity_command or None,
             basic_auth=args.basic_auth,
         )
         return 0

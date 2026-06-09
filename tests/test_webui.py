@@ -26,7 +26,7 @@ def test_webui_api_create_list_toggle_delete(tmp_path):
         thread.start()
         base = f'http://127.0.0.1:{server.server_port}'
 
-        data = urlencode({'name': 'alice', 'platform': 'ios', 'export_profile': 'amneziawg-ios'}).encode()
+        data = urlencode({'name': 'alice', 'platform': 'ios', 'export_profile': 'amneziawg-ios', 'notes': 'phone profile'}).encode()
         req = Request(base + '/api/peers', data=data, method='POST')
         created = json.loads(urlopen(req, timeout=5).read().decode())
         assert created['peer']['name'] == 'alice'
@@ -34,6 +34,7 @@ def test_webui_api_create_list_toggle_delete(tmp_path):
 
         listed = json.loads(urlopen(base + '/api/peers', timeout=5).read().decode())
         assert listed['peers'][0]['name'] == 'alice'
+        assert listed['peers'][0]['notes'] == 'phone profile'
         assert listed['peers'][0]['activity']['online'] is None
 
         urlopen(Request(base + '/api/peers/alice/disable', data=b'', method='POST'), timeout=5).read()
@@ -218,3 +219,48 @@ def test_webui_main_invokes_serve(monkeypatch, tmp_path):
     assert calls[0][1]['host'] == '127.0.0.2'
     assert calls[0][1]['port'] == 9090
     assert calls[0][1]['ssh_options'] == ['-o', 'BatchMode=yes']
+
+
+def test_webui_main_passes_activity_command(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_serve(*args, **kwargs):
+        calls.append((args, kwargs))
+
+    monkeypatch.setattr(webui, 'serve', fake_serve)
+    rc = webui.main([
+        '--db', str(tmp_path / 'vpnchain.sqlite'),
+        '--interface', 'awg0',
+        '--activity-tool', 'awg',
+        '--activity-command', 'docker',
+        '--activity-command', 'exec',
+        '--activity-command', 'awg-ru',
+        '--activity-command', 'awg',
+    ])
+
+    assert rc == 0
+    assert calls[0][1]['activity_command'] == ['docker', 'exec', 'awg-ru', 'awg']
+
+
+def test_cli_webui_passes_activity_command(monkeypatch, tmp_path):
+    from vpnchain import cli
+
+    calls = []
+
+    def fake_serve(*args, **kwargs):
+        calls.append((args, kwargs))
+
+    monkeypatch.setattr(cli, 'serve_webui', fake_serve)
+    rc = cli.main([
+        '--db', str(tmp_path / 'vpnchain.sqlite'),
+        'webui',
+        '--interface', 'awg0',
+        '--activity-tool', 'awg',
+        '--activity-command', 'docker',
+        '--activity-command', 'exec',
+        '--activity-command', 'awg-ru',
+        '--activity-command', 'awg',
+    ])
+
+    assert rc == 0
+    assert calls[0][1]['activity_command'] == ['docker', 'exec', 'awg-ru', 'awg']

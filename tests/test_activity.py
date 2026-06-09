@@ -1,4 +1,6 @@
-from vpnchain.activity import merge_peer_activity, parse_wg_dump
+import subprocess
+
+from vpnchain.activity import load_activity_from_command, merge_peer_activity, parse_wg_dump
 
 
 def test_parse_wg_dump_peer_lines():
@@ -24,3 +26,18 @@ def test_merge_peer_activity_unknown_gracefully():
     assert merged[0]['activity']['rx'] == 10
     assert merged[1]['activity']['endpoint'] is None
     assert merged[1]['activity']['online'] is None
+
+
+def test_load_activity_from_command_supports_command_prefix(monkeypatch):
+    calls = []
+
+    def fake_run(cmd, capture_output, text, timeout, check):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout='peerpub1\t(none)\t198.51.100.5:1\t10.8.0.3/32\t1710000000\t10\t20\t25\n', stderr='')
+
+    monkeypatch.setattr(subprocess, 'run', fake_run)
+
+    activity = load_activity_from_command('awg0', tool='awg', command_prefix=['docker', 'exec', 'awg-ru', 'awg'])
+
+    assert calls == [['docker', 'exec', 'awg-ru', 'awg', 'show', 'awg0', 'dump']]
+    assert activity['peerpub1'].endpoint == '198.51.100.5:1'

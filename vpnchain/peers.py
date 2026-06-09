@@ -63,7 +63,7 @@ def add_peer(db_path, name: str, *, address: str | None = None, client_type='cli
 
 def list_peers(db_path) -> list[dict[str, Any]]:
     with connect(db_path) as conn:
-        return [dict(r) for r in conn.execute('SELECT id, name, public_key, address, enabled, client_type, platform, export_profile, created_at, disabled_at FROM peers ORDER BY id')]
+        return [dict(r) for r in conn.execute('SELECT id, name, public_key, address, enabled, client_type, platform, export_profile, notes, created_at, disabled_at FROM peers ORDER BY id')]
 
 
 def get_peer(db_path, name: str) -> dict[str, Any] | None:

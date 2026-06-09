@@ -36,14 +36,15 @@ class PeerBackend(Protocol):
 class LocalPeerBackend:
     label = 'local'
 
-    def __init__(self, db_path: str | Path, *, interface: str | None = None, activity_tool: str = 'wg'):
+    def __init__(self, db_path: str | Path, *, interface: str | None = None, activity_tool: str = 'wg', activity_command: list[str] | None = None):
         self.db_path = str(db_path)
         self.interface = interface
         self.activity_tool = activity_tool
+        self.activity_command = activity_command
         init_db(self.db_path)
 
     def peers_with_activity(self) -> list[dict]:
-        activities = load_activity_from_command(self.interface, tool=self.activity_tool) if self.interface else {}
+        activities = load_activity_from_command(self.interface, tool=self.activity_tool, command_prefix=self.activity_command) if self.interface else {}
         return merge_peer_activity(list_peers(self.db_path), activities)
 
     def create_peer(self, form: dict[str, list[str]]) -> PeerAddResult:
@@ -100,17 +101,18 @@ def _is_missing_peer(exc: RemoteCommandError) -> bool:
 class CommandPeerBackend:
     """Backend for a WebUI that controls an active server through a local manager command."""
 
-    def __init__(self, command: str, *, db_path: str, interface: str | None = None, activity_tool: str = 'awg', timeout: float = 10.0):
+    def __init__(self, command: str, *, db_path: str, interface: str | None = None, activity_tool: str = 'awg', activity_command: list[str] | None = None, timeout: float = 10.0):
         self.command = command
         self.db_path = db_path
         self.interface = interface
         self.activity_tool = activity_tool
+        self.activity_command = activity_command
         self.timeout = timeout
         self.label = f'command:{Path(command).name}'
 
     def peers_with_activity(self) -> list[dict]:
         peers = json.loads(self._manager('peer', 'list'))
-        activities = load_activity_from_command(self.interface, tool=self.activity_tool) if self.interface else {}
+        activities = load_activity_from_command(self.interface, tool=self.activity_tool, command_prefix=self.activity_command) if self.interface else {}
         return merge_peer_activity(peers, activities)
 
     def create_peer(self, form: dict[str, list[str]]) -> PeerAddResult:
@@ -214,8 +216,8 @@ class SshPeerBackend:
 
 
 class VpnchainWebUI:
-    def __init__(self, db_path: str | Path, *, interface: str | None = None, activity_tool: str = 'wg', backend: PeerBackend | None = None, basic_auth: str | None = None):
-        self.backend = backend or LocalPeerBackend(db_path, interface=interface, activity_tool=activity_tool)
+    def __init__(self, db_path: str | Path, *, interface: str | None = None, activity_tool: str = 'wg', activity_command: list[str] | None = None, backend: PeerBackend | None = None, basic_auth: str | None = None):
+        self.backend = backend or LocalPeerBackend(db_path, interface=interface, activity_tool=activity_tool, activity_command=activity_command)
         self.basic_auth = basic_auth
 
     def peers_with_activity(self) -> list[dict]:
@@ -377,10 +379,11 @@ def serve(
     remote_vpnchain: str = 'vpnchain',
     ssh_options: list[str] | None = None,
     manager_command: str | None = None,
+    activity_command: list[str] | None = None,
     basic_auth: str | None = None,
 ) -> None:
     if manager_command:
-        backend = CommandPeerBackend(manager_command, db_path=str(db_path), interface=interface, activity_tool=activity_tool)
+        backend = CommandPeerBackend(manager_command, db_path=str(db_path), interface=interface, activity_tool=activity_tool, activity_command=activity_command)
         app = VpnchainWebUI(db_path, backend=backend, basic_auth=basic_auth)
         source = f'command={manager_command} db={db_path}'
     elif remote:
@@ -388,7 +391,7 @@ def serve(
         app = VpnchainWebUI(db_path, backend=backend, basic_auth=basic_auth)
         source = f'remote={remote} remote_db={remote_db}'
     else:
-        app = VpnchainWebUI(db_path, interface=interface, activity_tool=activity_tool, basic_auth=basic_auth)
+        app = VpnchainWebUI(db_path, interface=interface, activity_tool=activity_tool, activity_command=activity_command, basic_auth=basic_auth)
         source = f'db={db_path}'
     server = ThreadingHTTPServer((host, port), make_handler(app))
     print(f'vpnchain WebUI listening on http://{host}:{port} ({source})')
@@ -402,6 +405,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--port', type=int, default=8080)
     parser.add_argument('--interface', help='wg/awg interface for live activity, e.g. awg0')
     parser.add_argument('--activity-tool', default='wg', choices=('wg', 'awg'))
+    parser.add_argument('--activity-command', action='append', default=[], help='Override activity command prefix, repeatable; example: --activity-command docker --activity-command exec --activity-command awg-ru --activity-command awg')
     parser.add_argument('--remote', help='SSH target for active v2 server, e.g. vpnchain-ru')
     parser.add_argument('--remote-db', default=DEFAULT_REMOTE_DB, help='SQLite DB path on the remote server')
     parser.add_argument('--remote-vpnchain', default='vpnchain', help='vpnchain command path on the remote server')
@@ -424,13 +428,14 @@ def main(argv: list[str] | None = None) -> int:
         remote_vpnchain=args.remote_vpnchain,
         ssh_options=_split_ssh_options(args.ssh_option),
         manager_command=args.manager_command,
+        activity_command=args.activity_command or None,
         basic_auth=args.basic_auth,
     )
     return 0
 
 
 def render_index(peers, *, backend_label: str = 'local') -> str:
-    rows = '\n'.join(render_peer_row(peer) for peer in peers) or '<tr><td colspan="10">No profiles yet.</td></tr>'
+    rows = '\n'.join(render_peer_row(peer) for peer in peers) or '<tr><td colspan="11">No profiles yet.</td></tr>'
     backend = html.escape(backend_label)
     return f'''<!doctype html>
 <html><head><meta charset="utf-8"><title>vpnchain manager</title>{STYLE}</head>
@@ -449,7 +454,7 @@ def render_index(peers, *, backend_label: str = 'local') -> str:
 <button>Create and show one-time config</button>
 </form></section>
 <section class="card"><h2>Profiles</h2>
-<table><thead><tr><th>Name</th><th>Address</th><th>Platform</th><th>Profile type</th><th>Status</th><th>Handshake</th><th>Rx</th><th>Tx</th><th>Endpoint</th><th>Actions</th></tr></thead><tbody>{rows}</tbody></table>
+<table><thead><tr><th>Name</th><th>Address</th><th>Platform</th><th>Profile type</th><th>Notes</th><th>Status</th><th>Handshake</th><th>Rx</th><th>Tx</th><th>Endpoint</th><th>Actions</th></tr></thead><tbody>{rows}</tbody></table>
 </section></main></body></html>'''
 
 
@@ -480,8 +485,9 @@ def render_peer_row(peer) -> str:
     else:
         status += ' / activity unknown'
     toggle = 'disable' if peer.get('enabled') else 'enable'
+    notes = html.escape(str(peer.get('notes') or ''))
     return f'''<tr>
-<td>{name}</td><td>{html.escape(str(peer.get('address') or ''))}</td><td>{html.escape(str(peer.get('platform') or 'generic'))}</td><td>{html.escape(str(peer.get('export_profile') or 'amneziawg'))}</td><td>{html.escape(status)}</td>
+<td>{name}</td><td>{html.escape(str(peer.get('address') or ''))}</td><td>{html.escape(str(peer.get('platform') or 'generic'))}</td><td>{html.escape(str(peer.get('export_profile') or 'amneziawg'))}</td><td>{notes}</td><td>{html.escape(status)}</td>
 <td>{_time(activity.get('latest_handshake'))}</td><td>{_bytes(activity.get('rx'))}</td><td>{_bytes(activity.get('tx'))}</td><td>{html.escape(str(activity.get('endpoint') or '—'))}</td>
 <td class="actions"><form method="post" action="/peers/{name}/{toggle}"><button>{toggle}</button></form>
 <form method="post" action="/peers/{name}/delete" onsubmit="return confirm('Delete {name}?')"><button class="danger">delete</button></form></td></tr>'''

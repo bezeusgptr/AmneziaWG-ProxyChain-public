@@ -48,14 +48,24 @@ def parse_wg_dump(text: str) -> dict[str, PeerActivity]:
     return activities
 
 
-def load_activity_from_command(interface: str, *, tool: str = 'wg', timeout: float = 2.0) -> dict[str, PeerActivity]:
+def load_activity_from_command(
+    interface: str,
+    *,
+    tool: str = 'wg',
+    command_prefix: list[str] | None = None,
+    timeout: float = 2.0,
+) -> dict[str, PeerActivity]:
     """Load peer activity with a small, testable shell boundary.
 
     Returns an empty mapping if the tool is unavailable or the command fails so
     the WebUI can display unknown/offline state without requiring root.
+
+    ``command_prefix`` lets active-server WebUIs read activity from wrappers such
+    as ``docker exec awg-ru awg`` while keeping the default host-tool behavior.
     """
+    cmd = [*(command_prefix or [tool]), 'show', interface, 'dump']
     try:
-        result = subprocess.run([tool, 'show', interface, 'dump'], capture_output=True, text=True, timeout=timeout, check=False)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
     except (OSError, subprocess.SubprocessError):
         return {}
     if result.returncode != 0:
