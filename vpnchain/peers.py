@@ -26,6 +26,7 @@ AMNEZIAWG_OBFUSCATION = {
 
 IOS_AMNEZIAWG_EXPORT_PROFILE = 'amneziawg-ios'
 DEFAULT_EXPORT_PROFILE = 'amneziawg'
+DEFAULT_CLIENT_DNS = '8.8.8.8, 1.1.1.1'
 
 
 @dataclass(frozen=True)
@@ -112,6 +113,7 @@ def render_amneziawg_config(peer: dict[str, Any], private_key: str, *, server_pu
         '[Interface]',
         f'PrivateKey = {private_key}',
         f'Address = {peer["address"]}',
+        f'DNS = {DEFAULT_CLIENT_DNS}',
     ]
     interface_lines.extend(f'{key} = {value}' for key, value in AMNEZIAWG_OBFUSCATION.items())
     return '\n'.join([
@@ -140,6 +142,7 @@ def render_amneziawg_ios_config(peer: dict[str, Any], private_key: str, *, serve
         '[Interface]',
         f'PrivateKey = {private_key}',
         f'Address = {peer["address"]}',
+        f'DNS = {DEFAULT_CLIENT_DNS}',
     ]
     interface_lines.extend(f'{key} = {value}' for key, value in AMNEZIAWG_OBFUSCATION.items())
     return '\n'.join([
