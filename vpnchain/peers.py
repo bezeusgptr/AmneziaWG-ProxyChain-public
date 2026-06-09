@@ -27,6 +27,7 @@ AMNEZIAWG_OBFUSCATION = {
 IOS_AMNEZIAWG_EXPORT_PROFILE = 'amneziawg-ios'
 DEFAULT_EXPORT_PROFILE = 'amneziawg'
 DEFAULT_CLIENT_DNS = '8.8.8.8, 1.1.1.1'
+DEFAULT_CLIENT_ALLOWED_IPS = '0.0.0.0/0'
 
 
 @dataclass(frozen=True)
@@ -122,7 +123,7 @@ def render_amneziawg_config(peer: dict[str, Any], private_key: str, *, server_pu
         '[Peer]',
         '# Server peer generated from RU runtime configuration.' if server_public_key and server_endpoint else '# Fill server PublicKey/Endpoint from runtime server configuration.',
         f'PublicKey = {server_public_key or "<server-public-key>"}',
-        'AllowedIPs = 0.0.0.0/0, ::/0',
+        f'AllowedIPs = {DEFAULT_CLIENT_ALLOWED_IPS}',
         f'Endpoint = {server_endpoint or "<server-endpoint>"}',
         'PersistentKeepalive = 25',
         '',
@@ -151,7 +152,7 @@ def render_amneziawg_ios_config(peer: dict[str, Any], private_key: str, *, serve
         '[Peer]',
         '# Server peer generated from RU runtime configuration.' if server_public_key and server_endpoint else '# Fill server PublicKey/Endpoint from runtime server configuration.',
         f'PublicKey = {server_public_key or "<server-public-key>"}',
-        'AllowedIPs = 0.0.0.0/0, ::/0',
+        f'AllowedIPs = {DEFAULT_CLIENT_ALLOWED_IPS}',
         f'Endpoint = {server_endpoint or "<server-endpoint>"}',
         'PersistentKeepalive = 25',
         '',

@@ -35,6 +35,8 @@ def test_default_amneziawg_profile_includes_dns_and_obfuscation_params(tmp_path)
 
     config = result.client_config
     assert 'DNS = 8.8.8.8, 1.1.1.1' in config
+    assert 'AllowedIPs = 0.0.0.0/0' in config
+    assert '::/0' not in config
     for expected in ('Jc = 4', 'Jmin = 50', 'Jmax = 1000', 'S1 = 80', 'S2 = 120', 'H1 = 1', 'H2 = 2', 'H3 = 3', 'H4 = 4'):
         assert expected in config
 
@@ -50,6 +52,8 @@ def test_amneziawg_ios_profile_is_strict_supported_conf(tmp_path):
     assert '[Peer]' in config
     assert f'PrivateKey = {result.private_key}' in config
     assert 'DNS = 8.8.8.8, 1.1.1.1' in config
+    assert 'AllowedIPs = 0.0.0.0/0' in config
+    assert '::/0' not in config
     assert 'Jc = 4' in config
     assert 'Jmin = 50' in config
     assert 'Jmax = 1000' in config
