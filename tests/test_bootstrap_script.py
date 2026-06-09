@@ -67,3 +67,28 @@ def test_bootstrap_requires_ru_server_endpoint(tmp_path):
     res = run_script('--role', 'ru', '--ru-uplink-conf', str(conf))
     assert res.returncode != 0
     assert 'requires --server-endpoint' in res.stderr
+
+def test_bootstrap_uses_named_server_public_key_variable():
+    script = SCRIPT.read_text()
+    assert 'SERVER_PUBLIC_KEY="$(docker exec awg-am cat /etc/amnezia/amneziawg/server_public_key)"' in script
+    assert 'PublicKey = $SERVER_PUBLIC_KEY' in script
+    assert 'am_public_key' not in script
+
+
+def test_bootstrap_ru_peer_persistence_is_non_fatal():
+    script = SCRIPT.read_text()
+    assert 'docker exec awg-am awg set awg0 peer "$ru_public_key" allowed-ips 10.9.0.2/32 \\' in script
+    assert 'Не удалось добавить RU peer в runtime awg0' in script
+    assert 'Не удалось дописать RU peer в awg0.conf внутри awg-am' in script
+
+def test_bootstrap_has_guards_for_role_specific_apply_paths():
+    script = SCRIPT.read_text()
+    assert '[ "$GENERATE_RU_UPLINK" -eq 1 ] || return 0' in script
+    assert '[ -n "$RU_UPLINK_CONF" ] || return 0' in script
+
+
+def test_bootstrap_reads_existing_env_only_when_readable():
+    script = SCRIPT.read_text()
+    assert 'existing_ru_pub_key=""' in script
+    assert 'if [ -r "$ENV_OUT" ]; then' in script
+    assert 'existing_ru_pub_key="$(sed -n' in script

@@ -177,7 +177,10 @@ backup_if_exists() {
 write_env() {
   tmp="$(mktemp)"
   chmod 600 "$tmp"
-  existing_ru_pub_key="$(sed -n 's/^RU_PUB_KEY=//p' "$ENV_OUT" 2>/dev/null | tail -n 1)"
+  existing_ru_pub_key=""
+  if [ -r "$ENV_OUT" ]; then
+    existing_ru_pub_key="$(sed -n 's/^RU_PUB_KEY=//p' "$ENV_OUT" | tail -n 1)"
+  fi
   {
     printf 'VPNCHAIN_ROLE=%s\n' "$ROLE"
     if [ "$ROLE" = "ru" ]; then
@@ -205,12 +208,13 @@ append_or_replace_env() {
 }
 
 generate_ru_uplink_config() {
+  [ "$GENERATE_RU_UPLINK" -eq 1 ] || return 0
   [ "$ROLE" = "am" ] || fail "--generate-ru-uplink is only valid with --role am"
   [ "$APPLY" -eq 1 ] || return 0
   [ -d "$(dirname "$OUTPUT")" ] || mkdir -p "$(dirname "$OUTPUT")"
   chmod 700 "$(dirname "$OUTPUT")" 2>/dev/null || true
 
-  am_public_key="$(docker exec awg-am cat /etc/amnezia/amneziawg/server_public_key)"
+  SERVER_PUBLIC_KEY="$(docker exec awg-am cat /etc/amnezia/amneziawg/server_public_key)"
   keypair="$(docker exec awg-am sh -lc 'priv=$(awg genkey); pub=$(printf "%s\n" "$priv" | awg pubkey); printf "%s\n%s\n" "$priv" "$pub"')"
   ru_private_key="$(printf '%s\n' "$keypair" | sed -n '1p')"
   ru_public_key="$(printf '%s\n' "$keypair" | sed -n '2p')"
@@ -238,7 +242,7 @@ H3 = 3
 H4 = 4
 
 [Peer]
-PublicKey = $am_public_key
+PublicKey = $SERVER_PUBLIC_KEY
 Endpoint = $AM_UPLINK_ENDPOINT
 AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25
@@ -246,13 +250,15 @@ EOF
   mv "$tmp" "$OUTPUT"
   chmod 600 "$OUTPUT"
 
-  docker exec awg-am awg set awg0 peer "$ru_public_key" allowed-ips 10.9.0.2/32
+  docker exec awg-am awg set awg0 peer "$ru_public_key" allowed-ips 10.9.0.2/32 \
+    || warn "Не удалось добавить RU peer в runtime awg0; продолжаю, persistent env сохранится"
   docker exec awg-am sh -lc "grep -q 'PublicKey = $ru_public_key' /etc/amnezia/amneziawg/awg0.conf || cat >> /etc/amnezia/amneziawg/awg0.conf <<EOF
 
 [Peer]
 PublicKey = $ru_public_key
 AllowedIPs = 10.9.0.2/32
-EOF"
+EOF" \
+    || warn "Не удалось дописать RU peer в awg0.conf внутри awg-am; продолжаю, persistent env сохранится"
 
   # Internal persistence: keeps the generated RU client peer on AM after
   # future compose recreate.
@@ -273,8 +279,8 @@ store_ru_server_public_key() {
 }
 
 install_ru_uplink_config() {
-  [ "$ROLE" = "ru" ] || fail "--ru-uplink-conf is only valid with --role ru"
   [ -n "$RU_UPLINK_CONF" ] || return 0
+  [ "$ROLE" = "ru" ] || fail "--ru-uplink-conf is only valid with --role ru"
   [ "$APPLY" -eq 1 ] || return 0
   docker cp "$RU_UPLINK_CONF" awg-ru:/etc/amnezia/amneziawg/awg1.conf
   docker restart awg-ru >/dev/null

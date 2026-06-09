@@ -83,3 +83,12 @@ def test_client_config_embeds_server_public_key_and_endpoint(tmp_path):
     assert 'Endpoint = ru.example.test:51820' in result.client_config
     assert '<server-public-key>' not in result.client_config
     assert '<server-endpoint>' not in result.client_config
+
+def test_default_peer_addresses_match_ru_awg0_subnet(tmp_path):
+    db = tmp_path / 'vpnchain.sqlite'
+    init_db(db)
+    first = add_peer(db, 'first', keygen=KeyGenerator(seed='first'))
+    second = add_peer(db, 'second', keygen=KeyGenerator(seed='second'))
+    assert first.peer['address'] == '10.8.0.3/32'
+    assert second.peer['address'] == '10.8.0.4/32'
+    assert 'Address = 10.8.0.3/32' in first.client_config

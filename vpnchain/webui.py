@@ -440,7 +440,7 @@ def render_index(peers, *, backend_label: str = 'local') -> str:
 <section class="card"><h2>Create profile</h2>
 <form method="post" action="/peers" class="grid">
 <label>Name <input name="name" required></label>
-<label>Address (optional) <input name="address" placeholder="10.77.0.42/32"></label>
+<label>Address (optional) <input name="address" placeholder="10.8.0.42/32"></label>
 <label>Platform <input name="platform" value="generic"></label>
 <label>Export profile <select name="export_profile"><option value="amneziawg">amneziawg</option><option value="amneziawg-ios">amneziawg-ios</option></select></label>
 <label class="wide">Notes <input name="notes"></label>

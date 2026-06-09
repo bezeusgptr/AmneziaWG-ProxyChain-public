@@ -62,10 +62,10 @@ def test_ssh_backend_uses_remote_cli_and_merges_activity(monkeypatch):
         remote = cmd[-1]
         if 'peer list' in remote:
             return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps([
-                {'name': 'alice', 'public_key': 'peerpub1', 'address': '10.77.0.3/32', 'enabled': 1}
+                {'name': 'alice', 'public_key': 'peerpub1', 'address': '10.8.0.3/32', 'enabled': 1}
             ]), stderr='')
         if 'show awg0 dump' in remote:
-            return subprocess.CompletedProcess(cmd, 0, stdout='peerpub1\t(none)\t198.51.100.9:51820\t10.77.0.3/32\t1710000000\t12\t34\t25\n', stderr='')
+            return subprocess.CompletedProcess(cmd, 0, stdout='peerpub1\t(none)\t198.51.100.9:51820\t10.8.0.3/32\t1710000000\t12\t34\t25\n', stderr='')
         raise AssertionError(remote)
 
     monkeypatch.setattr(subprocess, 'run', fake_run)
@@ -188,7 +188,7 @@ def test_webui_render_helpers_cover_status_and_formatting():
     online_row = webui.render_peer_row({
         'name': 'alice',
         'enabled': 1,
-        'address': '10.77.0.3/32',
+        'address': '10.8.0.3/32',
         'platform': 'ios',
         'export_profile': 'amneziawg-ios',
         'activity': {'online': True, 'latest_handshake': 1710000000, 'rx': 1200, 'tx': 3400, 'endpoint': '198.51.100.9:51820'},

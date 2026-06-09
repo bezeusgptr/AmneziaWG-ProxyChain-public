@@ -9,7 +9,8 @@ import os
 from .db import connect
 from .keys import KeyGenerator, KeyPair
 
-DEFAULT_NETWORK = ipaddress.ip_network('10.77.0.0/24')
+# Must match server-ru/awg0.conf.template Address = 10.8.0.1/24.
+DEFAULT_NETWORK = ipaddress.ip_network('10.8.0.0/24')
 
 AMNEZIAWG_OBFUSCATION = {
     'Jc': 4,

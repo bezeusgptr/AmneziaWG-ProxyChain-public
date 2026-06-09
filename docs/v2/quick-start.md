@@ -25,13 +25,22 @@
 
 - Debian/Ubuntu-подобный Linux;
 - root или sudo;
-- Docker и `docker compose`;
+- Docker CLI и `docker compose`/`docker-compose`;
 - доступный `/dev/net/tun`;
 - открытые UDP-порты:
   - на AM/выходной сервере: `51821/udp`;
   - на RU-сервере: `51820/udp`.
 
-На обоих серверах установите модуль AmneziaWG:
+Минимальные Docker-пакеты для Debian-подобных систем:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y docker.io docker-compose docker-cli
+```
+
+На некоторых образах Debian 13 пакет `docker.io` + `docker-compose` не ставит саму команду `docker`; в этом случае обязателен отдельный пакет `docker-cli`.
+
+На обоих серверах попробуйте установить модуль AmneziaWG:
 
 ```bash
 sudo bash install_kernel_module.sh
@@ -39,6 +48,8 @@ lsmod | grep amneziawg || sudo modprobe amneziawg
 ```
 
 Если установка обновила ядро — перезагрузите сервер и повторите проверку.
+
+Если на свежем Debian 13 нет подходящих `linux-headers-*` или пакетов для сборки модуля, установка может продолжать работать через userspace fallback `amneziawg-go` внутри контейнеров. Это хуже для производительности, но не блокирует функциональную проверку chain при наличии `/dev/net/tun`.
 
 ## 1. Склонируйте репозиторий на оба сервера
 
@@ -98,10 +109,14 @@ sudo scripts/vpnchain-bootstrap.sh \
 
 Файл `/etc/vpnchain/ru-awg1.conf` содержит private key. Передавайте его на RU-сервер только по защищённому каналу.
 
-Скопируйте файл с AM/выходной сервера на RU-сервер. Выполнить **на своём компьютере или на AM-сервере**, заменив `<RU_PUBLIC_HOST_OR_IP>`:
+Скопируйте файл с AM/выходной сервера на RU-сервер. Файл содержит private key, поэтому не вставляйте его в чат/тикеты/логи.
+
+Если копируете **с AM-сервера на RU-сервер**, заменив `<RU_PUBLIC_HOST_OR_IP>`:
 
 ```bash
+ssh root@<RU_PUBLIC_HOST_OR_IP> 'mkdir -p /etc/vpnchain && chmod 700 /etc/vpnchain'
 scp /etc/vpnchain/ru-awg1.conf root@<RU_PUBLIC_HOST_OR_IP>:/etc/vpnchain/ru-awg1.conf
+ssh root@<RU_PUBLIC_HOST_OR_IP> 'chmod 600 /etc/vpnchain/ru-awg1.conf'
 ```
 
 Если копируете с обычного компьютера, сначала скачайте файл с AM, потом загрузите его на RU. Главное: итоговый файл должен лежать на RU-сервере здесь:
@@ -255,6 +270,8 @@ sudo --preserve-env=VPNCHAIN_SERVER_PUBLIC_KEY,VPNCHAIN_SERVER_ENDPOINT \
 
 Private key клиента показывается/записывается один раз и не хранится в SQLite. Ручная замена `PublicKey`/`Endpoint` не нужна.
 
+По умолчанию клиентские адреса выдаются из подсети RU `awg0`: `10.8.0.0/24` (`awg0` сервера — `10.8.0.1/24`, первые клиенты — `10.8.0.3/32`, `10.8.0.4/32`, ...). Если задаёте `--address` вручную, он тоже должен быть из этой подсети, иначе handshake может быть, но интернет у клиента не появится из-за неверной обратной маршрутизации.
+
 Если env не загружен, те же значения можно передать явно:
 
 ```bash
@@ -373,4 +390,5 @@ curl https://www.cloudflare.com/cdn-cgi/trace | grep loc=
 2. проверьте, что RU использует файл `/etc/vpnchain/ru-awg1.conf`;
 3. проверьте, что пользовательский клиентский конфиг содержит правильный `Endpoint`;
 4. проверьте, что public key пользователя записан в `/etc/vpnchain/vpnchain.env` на RU-сервере;
-5. выполните `sudo docker exec awg-ru awg show awg0` и посмотрите, есть ли peer клиента.
+5. проверьте, что `Address` в клиентском конфиге находится в подсети RU `awg0` (`10.8.0.0/24` по умолчанию);
+6. выполните `sudo docker exec awg-ru awg show awg0` и посмотрите, есть ли peer клиента.
