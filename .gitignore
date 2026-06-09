@@ -28,3 +28,13 @@ client*.conf
 __pycache__/
 .pytest_cache/
 *.py[cod]
+
+# Local OpenClaw workspace spillover; never publish assistant runtime files.
+AGENTS.md
+HEARTBEAT.md
+IDENTITY.md
+SOUL.md
+TOOLS.md
+USER.md
+.openclaw/
+artifacts/
