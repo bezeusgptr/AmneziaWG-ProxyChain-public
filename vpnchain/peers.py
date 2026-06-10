@@ -27,6 +27,10 @@ AMNEZIAWG_OBFUSCATION = {
 IOS_AMNEZIAWG_EXPORT_PROFILE = 'amneziawg-ios'
 DEFAULT_EXPORT_PROFILE = 'amneziawg'
 DEFAULT_CLIENT_DNS = '8.8.8.8, 1.1.1.1'
+# Conservative default for nested VPN/router clients. Higher MTU values (for
+# example WireGuard's common 1420) can make TCP connect but stall during TLS on
+# some paths/CDNs when the client is behind another router or VPN hop.
+DEFAULT_CLIENT_MTU = 1280
 DEFAULT_CLIENT_ALLOWED_IPS = '0.0.0.0/0'
 
 
@@ -115,6 +119,7 @@ def render_amneziawg_config(peer: dict[str, Any], private_key: str, *, server_pu
         f'PrivateKey = {private_key}',
         f'Address = {peer["address"]}',
         f'DNS = {DEFAULT_CLIENT_DNS}',
+        f'MTU = {DEFAULT_CLIENT_MTU}',
     ]
     interface_lines.extend(f'{key} = {value}' for key, value in AMNEZIAWG_OBFUSCATION.items())
     return '\n'.join([
@@ -144,6 +149,7 @@ def render_amneziawg_ios_config(peer: dict[str, Any], private_key: str, *, serve
         f'PrivateKey = {private_key}',
         f'Address = {peer["address"]}',
         f'DNS = {DEFAULT_CLIENT_DNS}',
+        f'MTU = {DEFAULT_CLIENT_MTU}',
     ]
     interface_lines.extend(f'{key} = {value}' for key, value in AMNEZIAWG_OBFUSCATION.items())
     return '\n'.join([
