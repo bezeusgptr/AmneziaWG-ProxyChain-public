@@ -1,0 +1,10 @@
+[Unit]
+Description=VPN Chain watchdog soft repair
+Documentation=README.md
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/AmneziaWG-ProxyChain/scripts/vpnchain-watchdog.sh

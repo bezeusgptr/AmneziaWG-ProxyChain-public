@@ -130,3 +130,22 @@ python3 -m vpnchain.cli webui \
 По умолчанию WebUI слушает `127.0.0.1` и не имеет встроенных TLS/CSRF-защит. Считайте его локальным инструмент администрирования. Для доступа из браузера держите привязку к localhost. `--remote` управляет серверным VPN-состоянием через SSH, но не публикует сам WebUI наружу. Если намеренно открываете UI через обратный прокси, добавьте авторизацию, TLS и контроль доступа.
 
 Приватные ключи клиентов появляются только в одноразовом ответе/конфиге при создании. Они не хранятся в SQLite; их нельзя коммитить в git, вставлять в документацию или оставлять в общих логах.
+
+### VPN Chain watchdog
+
+The RU node can fail partially: the Docker container may still be running while
+`awg0` or `dnsmasq` is gone. Install the watchdog timer on the RU host to perform
+soft repairs first and restart the container only as a fallback.
+
+```bash
+sudo install -m 0755 scripts/vpnchain-watchdog.sh /opt/AmneziaWG-ProxyChain/scripts/vpnchain-watchdog.sh
+sudo install -m 0644 systemd/vpnchain-watchdog.service /etc/systemd/system/vpnchain-watchdog.service
+sudo install -m 0644 systemd/vpnchain-watchdog.timer /etc/systemd/system/vpnchain-watchdog.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now vpnchain-watchdog.timer
+```
+
+The restart fallback is limited to 5 consecutive attempts by default. Override
+with `VPNCHAIN_WATCHDOG_MAX_RESTARTS` in the service environment if needed.
+Problems are logged to journald (`vpnchain-watchdog`) and
+`/var/log/vpnchain-watchdog.log`.
