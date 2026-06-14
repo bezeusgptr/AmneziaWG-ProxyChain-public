@@ -160,6 +160,33 @@ ssh root@<IP_RU_СЕРВЕРА> "nohup bash /opt/AmneziaWG-ProxyChain/monitor_tu
 
 ---
 
+## Шаг 5. Web UI (рекомендуется)
+
+Передайте `--webui-auth login:password` при установке RU-сервера. Bootstrap автоматически сохранит credentials, установит и запустит systemd service.
+
+```bash
+cd /opt/AmneziaWG-ProxyChain
+sudo scripts/vpnchain-bootstrap.sh   --role ru   --ru-uplink-conf /etc/vpnchain/ru-awg1.conf   --server-endpoint <RU_HOST>:51820   --webui-auth 'admin:strongpassword'   --apply
+```
+
+Что выполнит bootstrap:
+- Сохранит `VPNCHAIN_WEBUI_AUTH=admin:strongpassword` в `/etc/vpnchain/vpnchain.env`.
+- Установит `/etc/systemd/system/vpnchain-webui.service`.
+- Откроет TCP-порт 8080 в iptables (INPUT).
+- Запустит service: `systemctl enable --now vpnchain-webui`.
+
+Открыть в браузере: `http://<RU_HOST>:8080`
+
+Управление service:
+
+```bash
+systemctl status vpnchain-webui
+systemctl restart vpnchain-webui
+journalctl -u vpnchain-webui -n 50 --no-pager
+```
+
+Если `--webui-auth` не задан и `VPNCHAIN_WEBUI_AUTH` отсутствует в env-файле, service не устанавливается.
+
 ## Обновление ядра через Backports (рекомендуется для Debian 11)
 
 Если на вашем Debian 11 старое ядро, рекомендуется обновить его до 6.1 LTS через официальные backports:

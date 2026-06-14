@@ -317,35 +317,56 @@ sudo docker exec awg-ru awg show awg0
 
 ## 9. Веб-интерфейс
 
-Локальный WebUI на RU-сервере:
+WebUI управляет пирами, генерирует клиентские конфиги и показывает активность. При наличии `VPNCHAIN_WEBUI_AUTH` в `/etc/vpnchain/vpnchain.env` он автоматически стартует как systemd service после установки RU-сервера.
+
+### Установка с автозапуском (рекомендуется)
+
+Добавьте `--webui-auth login:password` к команде bootstrap при первом запуске на RU-сервере:
 
 ```bash
-sudo python3 -m vpnchain.cli \
-  --db /var/lib/vpnchain/vpnchain.sqlite \
-  webui \
-  --host 127.0.0.1 \
-  --port 8080 \
-  --interface awg0 \
-  --activity-tool awg
+sudo scripts/vpnchain-bootstrap.sh   --role ru   --ru-uplink-conf /etc/vpnchain/ru-awg1.conf   --server-endpoint <RU_PUBLIC_HOST_OR_IP>:51820   --webui-auth 'admin:strongpassword'   --apply
 ```
 
-Откройте его через SSH forwarding со своего компьютера:
+Bootstrap выполнит автоматически:
+- сохранит credentials в `/etc/vpnchain/vpnchain.env` (`VPNCHAIN_WEBUI_AUTH=admin:strongpassword`)
+- установит `/etc/systemd/system/vpnchain-webui.service`
+- откроет TCP-порт 8080 в iptables
+- запустит service: `systemctl enable --now vpnchain-webui`
+
+Откройте в браузере: `http://<RU_PUBLIC_HOST_OR_IP>:8080`
+
+Если `VPNCHAIN_WEBUI_AUTH` уже есть в `/etc/vpnchain/vpnchain.env`, при последующих запусках bootstrap WebUI стартует автоматически без повторного указания `--webui-auth`.
+
+Если `--webui-auth` не задан и переменная отсутствует в env-файле, WebUI service не устанавливается.
+
+Чтобы изменить порт (по умолчанию 8080), добавьте `--webui-port 9090`.
+
+### Управление service
+
+```bash
+systemctl status vpnchain-webui
+systemctl restart vpnchain-webui
+journalctl -u vpnchain-webui -n 50 --no-pager
+```
+
+### Доступ через SSH forwarding (если WebUI только локально)
+
+Если хотите запустить WebUI только на localhost без открытия порта наружу, не используйте bootstrap — запустите вручную:
+
+```bash
+set -a; . /etc/vpnchain/vpnchain.env; set +a
+PYTHONPATH=/opt/AmneziaWG-ProxyChain   python3 -m vpnchain   --db /var/lib/vpnchain/vpnchain.sqlite   webui --host 127.0.0.1 --port 8080   --interface awg0 --activity-tool awg   --activity-command docker --activity-command exec --activity-command awg-ru --activity-command awg   --manager-command /opt/AmneziaWG-ProxyChain/bin/vpnchain-v2-active   --basic-auth "$VPNCHAIN_WEBUI_AUTH"
+```
+
+Откройте через SSH tunnel:
 
 ```bash
 ssh -L 8080:127.0.0.1:8080 root@<RU_PUBLIC_HOST_OR_IP>
 ```
 
-Затем откройте в браузере:
+### Безопасность
 
-```text
-http://127.0.0.1:8080
-```
-
-Не публикуйте WebUI наружу без TLS, firewall и авторизации. Если всё-таки открываете его через reverse proxy, используйте минимум:
-
-```bash
---basic-auth user:password
-```
+WebUI, установленный через bootstrap, открыт наружу (`--host 0.0.0.0`) и защищён Basic Auth. Используйте надёжный пароль. При необходимости дополнительно ограничьте доступ через iptables.
 
 ## 10. Мониторинг
 

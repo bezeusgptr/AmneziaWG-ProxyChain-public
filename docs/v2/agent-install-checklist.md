@@ -52,6 +52,32 @@ scripts/vpnchain-bootstrap.sh \
   --apply
 ```
 
+## WebUI setup (recommended for RU role)
+
+If the operator wants a web interface for peer management, pass `--webui-auth` to the RU bootstrap command:
+
+```bash
+cd /opt/AmneziaWG-ProxyChain
+scripts/vpnchain-bootstrap.sh   --role ru   --ru-uplink-conf /etc/vpnchain/ru-awg1.conf   --server-endpoint <RU_PUBLIC_HOST_OR_IP>:51820   --webui-auth 'admin:strongpassword'   --apply
+```
+
+Bootstrap will automatically:
+- Store `VPNCHAIN_WEBUI_AUTH=admin:strongpassword` in `/etc/vpnchain/vpnchain.env`.
+- Install `/etc/systemd/system/vpnchain-webui.service` (reads env file, uses `CommandPeerBackend` via `vpnchain-v2-active`).
+- Open TCP port 8080 in iptables.
+- Enable and start the service: `systemctl enable --now vpnchain-webui`.
+
+If `--webui-auth` is not provided and `VPNCHAIN_WEBUI_AUTH` is absent from the env file, the WebUI service is not installed.
+
+On subsequent bootstrap runs (e.g., when re-applying after changes), the existing `VPNCHAIN_WEBUI_AUTH` value in `/etc/vpnchain/vpnchain.env` is preserved automatically — no need to pass `--webui-auth` again.
+
+Verify the service is running on RU:
+
+```bash
+systemctl is-active vpnchain-webui
+curl -u admin:strongpassword http://127.0.0.1:8080/api/peers
+```
+
 ## Client profile smoke test on RU
 
 ```bash

@@ -34,6 +34,9 @@ vpnchain-bootstrap.sh — guided installer/checker для AmneziaWG ProxyChain v
   --config-dir PATH            Config dir (по умолчанию /etc/vpnchain).
   --compose-file PATH          Compose file (по умолчанию REPO/docker-compose.yml).
   --apply                      Выполнить изменения. Без этого — только dry-run.
+  --webui-auth USER:PASS       Для RU-роли: Basic Auth credentials для WebUI (login:password).
+                               Сохраняются в vpnchain.env и устанавливают systemd service.
+  --webui-port PORT            TCP-порт WebUI (по умолчанию 8080).
   --dry-run                    Принудительно включить dry-run.
   -h, --help                   Показать справку.
 
@@ -61,6 +64,8 @@ COMPOSE_FILE=""
 GENERATE_RU_UPLINK=0
 OUTPUT=""
 RU_UPLINK_CONF=""
+WEBUI_AUTH=""
+WEBUI_PORT=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -76,6 +81,8 @@ while [ "$#" -gt 0 ]; do
     --runtime-dir) RUNTIME_DIR="${2:-}"; shift 2 ;;
     --config-dir) CONFIG_DIR="${2:-}"; shift 2 ;;
     --compose-file) COMPOSE_FILE="${2:-}"; shift 2 ;;
+    --webui-auth) WEBUI_AUTH="${2:-}"; shift 2 ;;
+    --webui-port) WEBUI_PORT="${2:-}"; shift 2 ;;
     --apply) APPLY=1; shift ;;
     --dry-run) APPLY=0; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -174,22 +181,37 @@ backup_if_exists() {
   fi
 }
 
+EFFECTIVE_WEBUI_AUTH=""
+EFFECTIVE_WEBUI_PORT=""
+
 write_env() {
   tmp="$(mktemp)"
   chmod 600 "$tmp"
   existing_ru_pub_key=""
+  local existing_webui_auth="" existing_webui_port=""
   if [ -r "$ENV_OUT" ]; then
     existing_ru_pub_key="$(sed -n 's/^RU_PUB_KEY=//p' "$ENV_OUT" | tail -n 1)"
+    existing_webui_auth="$(sed -n 's/^VPNCHAIN_WEBUI_AUTH=//p' "$ENV_OUT" | tail -n 1)"
+    existing_webui_port="$(sed -n 's/^VPNCHAIN_WEBUI_PORT=//p' "$ENV_OUT" | tail -n 1)"
   fi
+  EFFECTIVE_WEBUI_AUTH="${WEBUI_AUTH:-$existing_webui_auth}"
+  EFFECTIVE_WEBUI_PORT="${WEBUI_PORT:-$existing_webui_port}"
   {
-    printf 'VPNCHAIN_ROLE=%s\n' "$ROLE"
+    printf 'VPNCHAIN_ROLE=%s
+' "$ROLE"
     if [ "$ROLE" = "ru" ]; then
-      [ -z "$CLIENT_PUB_KEY" ] || printf 'CLIENT_PUB_KEY=%s\n' "$CLIENT_PUB_KEY"
+      [ -z "$CLIENT_PUB_KEY" ] || printf 'CLIENT_PUB_KEY=%s
+' "$CLIENT_PUB_KEY"
     else
       # Internal persistence for the generated RU-uplink client peer on AM.
       # It is not an operator-facing key-exchange step.
-      [ -z "$existing_ru_pub_key" ] || printf 'RU_PUB_KEY=%s\n' "$existing_ru_pub_key"
+      [ -z "$existing_ru_pub_key" ] || printf 'RU_PUB_KEY=%s
+' "$existing_ru_pub_key"
     fi
+    [ -z "$EFFECTIVE_WEBUI_AUTH" ] || printf 'VPNCHAIN_WEBUI_AUTH=%s
+' "$EFFECTIVE_WEBUI_AUTH"
+    [ -z "$EFFECTIVE_WEBUI_PORT" ] || printf 'VPNCHAIN_WEBUI_PORT=%s
+' "$EFFECTIVE_WEBUI_PORT"
   } > "$tmp"
   backup_if_exists "$ENV_OUT"
   mv "$tmp" "$ENV_OUT"
@@ -287,12 +309,37 @@ install_ru_uplink_config() {
   log "RU uplink config установлен в awg-ru:/etc/amnezia/amneziawg/awg1.conf; контейнер awg-ru перезапущен"
 }
 
+install_webui_service() {
+  [ "$ROLE" = "ru" ] || return 0
+  [ "$APPLY" -eq 1 ] || return 0
+  if [ -z "$EFFECTIVE_WEBUI_AUTH" ]; then
+    log "VPNCHAIN_WEBUI_AUTH не задан — WebUI service не устанавливается"
+    return 0
+  fi
+  SERVICE_TPL="$REPO/systemd/vpnchain-webui.service"
+  [ -f "$SERVICE_TPL" ] || fail "шаблон service-файла не найден: $SERVICE_TPL"
+  SYSTEMD_SERVICE="/etc/systemd/system/vpnchain-webui.service"
+  sed "s|@@REPO@@|$REPO|g" "$SERVICE_TPL" > "$SYSTEMD_SERVICE"
+  chmod 644 "$SYSTEMD_SERVICE"
+  _webui_port="${EFFECTIVE_WEBUI_PORT:-8080}"
+  if command -v iptables >/dev/null 2>&1; then
+    iptables -C INPUT -p tcp --dport "$_webui_port" -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport "$_webui_port" -j ACCEPT
+    log "Открыт TCP-порт $_webui_port в iptables (INPUT)"
+  fi
+  systemctl daemon-reload
+  systemctl enable vpnchain-webui.service
+  systemctl restart vpnchain-webui.service
+  log "WebUI service установлен, включён и запущен на порту $_webui_port"
+  log "Откройте в браузере: http://<RU_HOST>:$_webui_port  (логин из VPNCHAIN_WEBUI_AUTH)"
+}
+
 if [ "$APPLY" -eq 0 ]; then
   log "Будет создано: $CONFIG_DIR, $RUNTIME_DIR/{backups,generated,tmp}"
   log "Будет записан env-файл: $ENV_OUT (с backup существующего файла, если он есть)"
   log "Будет выполнено: ${COMPOSE[*]} --env-file $ENV_OUT -f $COMPOSE_FILE --profile $ROLE up -d --build server-$ROLE"
   [ "$GENERATE_RU_UPLINK" -eq 0 ] || log "Будет создан RU uplink config: $OUTPUT, а AM добавит peer 10.9.0.2/32"
   [ -z "$RU_UPLINK_CONF" ] || log "Будет установлен готовый RU uplink config в awg-ru:/etc/amnezia/amneziawg/awg1.conf"
+  [ -z "$WEBUI_AUTH" ] || log "WebUI будет установлен с Basic Auth на порту ${WEBUI_PORT:-8080} (systemd service)"
 else
   [ "$missing" -eq 0 ] || fail "refusing --apply with missing required prerequisites"
   mkdir -p "$CONFIG_DIR" "$RUNTIME_DIR/backups" "$RUNTIME_DIR/generated" "$RUNTIME_DIR/tmp"
@@ -302,6 +349,7 @@ else
   generate_ru_uplink_config
   install_ru_uplink_config
   store_ru_server_public_key
+  install_webui_service
 fi
 
 cat <<NEXT
@@ -314,13 +362,18 @@ cat <<NEXT
   3. Скопируйте /etc/vpnchain/ru-awg1.conf с AM/exit-сервера на RU-сервер в /etc/vpnchain/ru-awg1.conf.
   4. На RU-сервере примените этот файл и запустите RU-контейнер:
        scripts/vpnchain-bootstrap.sh --role ru --ru-uplink-conf /etc/vpnchain/ru-awg1.conf --server-endpoint <RU-host>:51820 --apply
-  5. На RU-сервере инициализируйте v2 manager DB и создайте пользовательский профиль:
+  5. Запустите WebUI для управления пирами (рекомендуется):
+       Добавьте --webui-auth 'login:password' к команде bootstrap на RU:
+         scripts/vpnchain-bootstrap.sh --role ru --ru-uplink-conf ... --server-endpoint ... --webui-auth 'admin:pass' --apply
+       WebUI запустится автоматически как systemd service на порту 8080.
+       Если VPNCHAIN_WEBUI_AUTH уже есть в vpnchain.env — WebUI стартует без повторного ввода --webui-auth.
+  6. На RU-сервере инициализируйте v2 manager DB и создайте пользовательский профиль:
        python3 -m vpnchain.cli --db $RUNTIME_DIR/vpnchain.sqlite init-db
        VPNCHAIN_SERVER_PUBLIC_KEY="\$(grep ^VPNCHAIN_SERVER_PUBLIC_KEY= $ENV_OUT | cut -d= -f2-)" \
        VPNCHAIN_SERVER_ENDPOINT="\$(grep ^VPNCHAIN_SERVER_ENDPOINT= $ENV_OUT | cut -d= -f2-)" \
        python3 -m vpnchain.cli --db $RUNTIME_DIR/vpnchain.sqlite peer add phone --output $RUNTIME_DIR/generated/phone.conf
      PublicKey/Endpoint в клиентском конфиге будут подставлены автоматически. Для live-применения public key клиента добавляйте в CLIENT*_PUB_KEY env slots.
-  6. Проверьте маршрутизацию с подключённого клиента:
+  7. Проверьте маршрутизацию с подключённого клиента:
        curl https://ifconfig.me
        curl --resolve ya.ru:443:<known-ru-ip> https://ya.ru/  # опциональная точечная проверка RU-домена
 NEXT
