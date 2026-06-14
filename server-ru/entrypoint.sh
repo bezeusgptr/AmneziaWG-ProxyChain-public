@@ -101,6 +101,13 @@ iptables -I FORWARD 1 -i awg0 -j ACCEPT 2>/dev/null || true
 iptables -I FORWARD 1 -o awg0 -j ACCEPT 2>/dev/null || true
 iptables -I FORWARD 1 -i awg1 -j ACCEPT 2>/dev/null || true
 iptables -I FORWARD 1 -o awg1 -j ACCEPT 2>/dev/null || true
+# TCP MSS clamping: fix TCP black hole for Russian IPs routing via eth0.
+# awg0 MTU=1280; without clamping pikabu.ru and similar sites send 1460-byte
+# segments that exceed awg0 capacity and stall the TCP connection silently.
+iptables -t mangle -C FORWARD -i awg0 -o eth0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240 2>/dev/null \
+  || iptables -t mangle -A FORWARD -i awg0 -o eth0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
+iptables -t mangle -C FORWARD -i eth0 -o awg0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null \
+  || iptables -t mangle -A FORWARD -i eth0 -o awg0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 
 echo "Starting awg-quick on awg0..."
 ip link delete awg0 2>/dev/null || true
@@ -129,6 +136,19 @@ DNSMASQ_CONF=/tmp/dnsmasq-ru-domains.conf
 pkill dnsmasq 2>/dev/null || true
 dnsmasq --conf-file="$DNSMASQ_CONF"
 
+# Pre-fill ru_domains so domain-based RU egress does not depend on a fresh
+# client DNS query. This covers clients/browsers with cached DNS or DoH.
+if [ -f /config/ru-domains.txt ]; then
+    sed 's/#.*//; s/^[[:space:]]*//; s/[[:space:]]*$//' /config/ru-domains.txt | while read -r domain; do
+        [ -n "$domain" ] || continue
+        nslookup "$domain" 127.0.0.1 2>/dev/null | awk '/^Address: / {print $2}' | while read -r ip; do
+            case "$ip" in
+                *:*) ;;
+                *.*) ipset add ru_domains "$ip" timeout 86400 2>/dev/null || true ;;
+            esac
+        done
+    done
+fi
 
 if [ -f /etc/amnezia/amneziawg/awg1.conf ]; then
     echo "Starting awg-quick on awg1 (Link to AM)..."
