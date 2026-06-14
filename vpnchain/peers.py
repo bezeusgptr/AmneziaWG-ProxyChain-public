@@ -26,7 +26,7 @@ AMNEZIAWG_OBFUSCATION = {
 
 IOS_AMNEZIAWG_EXPORT_PROFILE = 'amneziawg-ios'
 DEFAULT_EXPORT_PROFILE = 'amneziawg'
-DEFAULT_CLIENT_DNS = '8.8.8.8, 1.1.1.1'
+DEFAULT_CLIENT_DNS = '10.8.0.1'
 # Conservative default for nested VPN/router clients. Higher MTU values (for
 # example WireGuard's common 1420) can make TCP connect but stall during TLS on
 # some paths/CDNs when the client is behind another router or VPN hop.
