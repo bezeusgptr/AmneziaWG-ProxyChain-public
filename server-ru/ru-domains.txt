@@ -3,3 +3,6 @@
 # for these domains to the ru_domains ipset.
 2ip.ru
 www.2ip.ru
+vk.com
+www.vk.com
+m.vk.com
