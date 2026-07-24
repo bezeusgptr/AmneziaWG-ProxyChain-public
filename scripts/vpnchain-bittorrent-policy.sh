@@ -141,11 +141,17 @@ remove_policy() {
 }
 
 place_jump_first() {
-    local tool="$1" chain="$2"
+    local tool="$1" chain="$2" guard_comment="$OWNER_COMMENT-reorder-guard"
+    # Keep a distinct guard at rule 1 while replacing owned jumps. If any
+    # operation fails, either the guard or the final jump remains fail-closed.
+    "$tool" -I FORWARD 1 -i "$INTERFACE" -m comment --comment "$guard_comment" -j "$chain"
     while "$tool" -C FORWARD -i "$INTERFACE" -m comment --comment "$OWNER_COMMENT" -j "$chain" 2>/dev/null; do
         "$tool" -D FORWARD -i "$INTERFACE" -m comment --comment "$OWNER_COMMENT" -j "$chain"
     done
     "$tool" -I FORWARD 1 -i "$INTERFACE" -m comment --comment "$OWNER_COMMENT" -j "$chain"
+    while "$tool" -C FORWARD -i "$INTERFACE" -m comment --comment "$guard_comment" -j "$chain" 2>/dev/null; do
+        "$tool" -D FORWARD -i "$INTERFACE" -m comment --comment "$guard_comment" -j "$chain"
+    done
 }
 
 install_fail_closed() {
@@ -204,13 +210,27 @@ apply_policy() {
     umask 077
     if [[ ! -d "$snapshot" ]]; then
         snapshot_tmp="$(mktemp -d "$STATE_DIR/.rollback-snapshot.XXXXXX")"
-        if ! iptables-save > "$snapshot_tmp/ipv4.rules" \
+        if [[ -f "$STATE_DIR/rollback-v4.rules" && -f "$STATE_DIR/rollback-v6.rules" ]]; then
+            if ! cp "$STATE_DIR/rollback-v4.rules" "$snapshot_tmp/ipv4.rules" \
+                || ! cp "$STATE_DIR/rollback-v6.rules" "$snapshot_tmp/ipv6.rules"; then
+                rm -rf "$snapshot_tmp"
+                return 1
+            fi
+        elif [[ -e "$STATE_DIR/rollback-v4.rules" || -e "$STATE_DIR/rollback-v6.rules" ]]; then
+            rm -rf "$snapshot_tmp"
+            fail 'incomplete legacy rollback snapshot; refusing to replace the original baseline'
+            return 1
+        elif ! iptables-save > "$snapshot_tmp/ipv4.rules" \
             || ! ip6tables-save > "$snapshot_tmp/ipv6.rules"; then
             rm -rf "$snapshot_tmp"
             return 1
         fi
-        chmod 0600 "$snapshot_tmp/ipv4.rules" "$snapshot_tmp/ipv6.rules"
-        mv "$snapshot_tmp" "$snapshot"
+        if ! chmod 0600 "$snapshot_tmp/ipv4.rules" "$snapshot_tmp/ipv6.rules" \
+            || ! mv "$snapshot_tmp" "$snapshot"; then
+            rm -rf "$snapshot_tmp"
+            return 1
+        fi
+        rm -f "$STATE_DIR/rollback-v4.rules" "$STATE_DIR/rollback-v6.rules"
     fi
 
     iptables-restore --test --noflush < "$rules4"

@@ -183,14 +183,15 @@ if name.endswith('-save'):
 elif name.endswith('-restore'):
     sys.stdin.read()
 elif args[:2] == ['-C', 'FORWARD']:
-    marker = name + '-jump'
-    present = state.exists() and marker in state.read_text()
+    marker = name + '-' + args[args.index('--comment') + 1]
+    present = state.exists() and marker in state.read_text().splitlines()
     raise SystemExit(0 if present else 1)
 elif args[:2] == ['-I', 'FORWARD']:
+    marker = name + '-' + args[args.index('--comment') + 1]
     with state.open('a') as stream:
-        stream.write(name + '-jump\\n')
+        stream.write(marker + '\\n')
 elif args[:2] == ['-D', 'FORWARD']:
-    marker = name + '-jump'
+    marker = name + '-' + args[args.index('--comment') + 1]
     remaining = [line for line in state.read_text().splitlines() if line != marker]
     state.write_text('\\n'.join(remaining) + ('\\n' if remaining else ''))
 elif args[:1] == ['-S']:
@@ -231,10 +232,10 @@ elif args[:1] == ['-S']:
     calls = log.read_text().splitlines()
     assert calls.count('iptables-save ') == 1
     assert calls.count('ip6tables-save ') == 1
-    assert sum(line.startswith('iptables -I FORWARD') for line in calls) == 2
-    assert sum(line.startswith('ip6tables -I FORWARD') for line in calls) == 2
-    assert sum(line.startswith('iptables -D FORWARD') for line in calls) == 2
-    assert sum(line.startswith('ip6tables -D FORWARD') for line in calls) == 2
+    assert sum(line.startswith('iptables -I FORWARD') for line in calls) == 4
+    assert sum(line.startswith('ip6tables -I FORWARD') for line in calls) == 4
+    assert sum(line.startswith('iptables -D FORWARD') for line in calls) == 4
+    assert sum(line.startswith('ip6tables -D FORWARD') for line in calls) == 4
     assert not (state_dir / 'rollback-snapshot').exists()
 
 
@@ -280,3 +281,48 @@ exit 0
     assert result.returncode != 0
     assert not (state_dir / 'rollback-snapshot').exists()
     assert list(state_dir.glob('.rollback-snapshot.*')) == []
+
+
+def test_legacy_snapshot_pair_is_migrated_without_recapturing_baseline(tmp_path):
+    fake_bin = tmp_path / 'bin'
+    fake_bin.mkdir()
+    backend = fake_bin / 'firewall-backend'
+    backend.write_text(
+        '''#!/bin/sh
+case "$(basename "$0")" in
+    *-save) exit 99 ;;
+    *-restore) cat >/dev/null ;;
+esac
+case "$1 $2" in
+    '-C FORWARD') exit 1 ;;
+    '-S VPCBTRU') printf '%s\\n' '-N VPCBTRU' '-A VPCBTRU -j DROP' ;;
+esac
+exit 0
+'''
+    )
+    backend.chmod(0o755)
+    for name in (
+        'iptables', 'ip6tables', 'iptables-save', 'ip6tables-save',
+        'iptables-restore', 'ip6tables-restore',
+    ):
+        (fake_bin / name).symlink_to(backend)
+    state_dir = tmp_path / 'state'
+    state_dir.mkdir()
+    (state_dir / 'rollback-v4.rules').write_text('legacy-v4\n')
+    (state_dir / 'rollback-v6.rules').write_text('legacy-v6\n')
+    allowlist = tmp_path / 'allowed-egress.conf'
+    allowlist.write_text('tcp 192.0.2.10/32 443\n')
+
+    result = run_loader(
+        'apply', PATH=f'{fake_bin}:{os.environ["PATH"]}',
+        VPNCHAIN_BT_POLICY_MODE='enforce', VPNCHAIN_BT_POLICY_ROLE='ru',
+        VPNCHAIN_BT_ALLOWLIST=str(allowlist), VPNCHAIN_BT_STATE_DIR=str(state_dir),
+    )
+
+    # The minimal fake intentionally fails final read-back; migration occurs
+    # before candidate restore and must still preserve the original baseline.
+    assert result.returncode != 0
+    assert (state_dir / 'rollback-snapshot' / 'ipv4.rules').read_text() == 'legacy-v4\n'
+    assert (state_dir / 'rollback-snapshot' / 'ipv6.rules').read_text() == 'legacy-v6\n'
+    assert not (state_dir / 'rollback-v4.rules').exists()
+    assert not (state_dir / 'rollback-v6.rules').exists()
