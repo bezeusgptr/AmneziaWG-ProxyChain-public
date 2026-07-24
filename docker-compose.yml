@@ -17,6 +17,7 @@ services:
       - ./server-ru/ru-domains.txt:/config/ru-domains.txt:ro
       - ./scripts/vpnchain-bittorrent-policy.sh:/usr/local/sbin/vpnchain-bittorrent-policy:ro
       - ./policy:/etc/vpnchain/bittorrent-policy:ro
+      - server-ru-policy-state:/run/vpnchain-bittorrent-policy
       - server-ru-keys:/etc/amnezia/amneziawg
     environment:
       # Без явного opt-in политика не меняет разрешённый VPN-трафик.
@@ -66,6 +67,7 @@ services:
       - ./server-am/awg0.conf.template:/config/awg0.conf.template:ro
       - ./scripts/vpnchain-bittorrent-policy.sh:/usr/local/sbin/vpnchain-bittorrent-policy:ro
       - ./policy:/etc/vpnchain/bittorrent-policy:ro
+      - server-am-policy-state:/run/vpnchain-bittorrent-policy
       - server-am-keys:/etc/amnezia/amneziawg
     environment:
       # Должен совпадать с RU только после отдельного rollout-решения.
@@ -84,4 +86,6 @@ services:
 volumes:
   server-ru-keys:
   server-am-keys:
+  server-ru-policy-state:
+  server-am-policy-state:
 

@@ -1,6 +1,13 @@
 #!/bin/bash
 set -e
 
+# Stop a stale host-network interface first, then install the gate before any
+# setup work or a new awg0 can carry traffic.
+ip link delete awg0 2>/dev/null || true
+VPNCHAIN_BT_POLICY_MODE="${VPNCHAIN_BT_POLICY_MODE:-disabled}" \
+VPNCHAIN_BT_POLICY_ROLE=am \
+    vpnchain-bittorrent-policy apply
+
 mkdir -p /etc/amnezia/amneziawg
 
 if [ ! -f /etc/amnezia/amneziawg/server_private_key ]; then
@@ -21,14 +28,7 @@ sed -i '/^\[Peer\]/{N;/\nPublicKey = *$/d;}' /etc/amnezia/amneziawg/awg0.conf
 sed -i '/^PublicKey = *$/d' /etc/amnezia/amneziawg/awg0.conf
 
 echo "Starting awg-quick on awg0 for AM node..."
-ip link delete awg0 2>/dev/null || true
 env WG_QUICK_USERSPACE_IMPLEMENTATION=amneziawg-go awg-quick up awg0
-
-# Независимый AM egress-gate. disabled сохраняет текущее поведение, а active
-# режим всегда ставит проектный jump перед broad ACCEPT из AWG PostUp.
-VPNCHAIN_BT_POLICY_MODE="${VPNCHAIN_BT_POLICY_MODE:-disabled}" \
-VPNCHAIN_BT_POLICY_ROLE=am \
-    vpnchain-bittorrent-policy apply
 
 echo "Tailing logs..."
 tail -f /dev/null

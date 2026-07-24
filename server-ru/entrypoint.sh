@@ -1,6 +1,14 @@
 #!/bin/bash
 set -e
 
+# Stop any stale host-network interfaces before setup can block on downloads,
+# then install the gate before client traffic can exist again.
+ip link delete awg0 2>/dev/null || true
+ip link delete awg1 2>/dev/null || true
+VPNCHAIN_BT_POLICY_MODE="${VPNCHAIN_BT_POLICY_MODE:-disabled}" \
+VPNCHAIN_BT_POLICY_ROLE=ru \
+    vpnchain-bittorrent-policy apply
+
 # Убедимся, что директория существует
 mkdir -p /etc/amnezia/amneziawg
 
@@ -97,10 +105,18 @@ iptables -C FORWARD -i docker0 ! -o docker0 -j ACCEPT 2>/dev/null || iptables -I
 iptables -C FORWARD -o docker0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || iptables -I FORWARD 1 -o docker0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 
 # Разрешаем FORWARD-трафик для интерфейсов после перевода в network_mode: host
-iptables -I FORWARD 1 -i awg0 -j ACCEPT 2>/dev/null || true
-iptables -I FORWARD 1 -o awg0 -j ACCEPT 2>/dev/null || true
-iptables -I FORWARD 1 -i awg1 -j ACCEPT 2>/dev/null || true
-iptables -I FORWARD 1 -o awg1 -j ACCEPT 2>/dev/null || true
+iptables -C FORWARD -i awg0 -j ACCEPT 2>/dev/null || iptables -A FORWARD -i awg0 -j ACCEPT
+iptables -C FORWARD -o awg0 -j ACCEPT 2>/dev/null || iptables -A FORWARD -o awg0 -j ACCEPT
+iptables -C FORWARD -i awg1 -j ACCEPT 2>/dev/null || iptables -A FORWARD -i awg1 -j ACCEPT
+iptables -C FORWARD -o awg1 -j ACCEPT 2>/dev/null || iptables -A FORWARD -o awg1 -j ACCEPT
+
+# The docker0 compatibility rule above is inserted at rule 1. Re-apply the
+# policy while awg interfaces are still absent so its owned jump is first
+# before client traffic can resume. The persistent snapshot is not recaptured.
+VPNCHAIN_BT_POLICY_MODE="${VPNCHAIN_BT_POLICY_MODE:-disabled}" \
+VPNCHAIN_BT_POLICY_ROLE=ru \
+    vpnchain-bittorrent-policy apply
+
 # TCP MSS clamping: fix TCP black hole for Russian IPs routing via eth0.
 # awg0 MTU=1280; without clamping pikabu.ru and similar sites send 1460-byte
 # segments that exceed awg0 capacity and stall the TCP connection silently.
@@ -110,8 +126,6 @@ iptables -t mangle -C FORWARD -i eth0 -o awg0 -p tcp --tcp-flags SYN,RST SYN -j 
   || iptables -t mangle -A FORWARD -i eth0 -o awg0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 
 echo "Starting awg-quick on awg0..."
-ip link delete awg0 2>/dev/null || true
-ip link delete awg1 2>/dev/null || true
 env WG_QUICK_USERSPACE_IMPLEMENTATION=amneziawg-go awg-quick up awg0
 
 echo "Configuring DNS-assisted selective routing..."
@@ -160,13 +174,6 @@ if [ -f /etc/amnezia/amneziawg/awg1.conf ]; then
     # NAT для трафика, уходящего в туннель до Армении
     iptables -t nat -A POSTROUTING -o awg1 -j MASQUERADE
 fi
-
-# Политика запрета BitTorrent подключается первой в FORWARD и поэтому не
-# обходится широкими ACCEPT-правилами выше. По умолчанию disabled удаляет
-# только проектные цепочки; enforce без валидного allowlist завершится ошибкой.
-VPNCHAIN_BT_POLICY_MODE="${VPNCHAIN_BT_POLICY_MODE:-disabled}" \
-VPNCHAIN_BT_POLICY_ROLE=ru \
-    vpnchain-bittorrent-policy apply
 
 echo "AmneziaWG is running. Tailing logs..."
 # Оставляем контейнер работать

@@ -92,6 +92,18 @@ def test_repository_wiring_is_read_only_and_default_disabled():
     assert 'VPNCHAIN_BT_POLICY_MODE:-disabled' in am
     assert 'vpnchain-bittorrent-policy apply' in ru
     assert 'vpnchain-bittorrent-policy apply' in am
+    assert ru.index('vpnchain-bittorrent-policy apply') < ru.index('awg-quick up awg0')
+    assert am.index('vpnchain-bittorrent-policy apply') < am.index('awg-quick up awg0')
+    assert ru.index('ip link delete awg0') < ru.index('mkdir -p /etc/amnezia/amneziawg')
+    assert am.index('ip link delete awg0') < am.index('mkdir -p /etc/amnezia/amneziawg')
+    assert ru.index('vpnchain-bittorrent-policy apply') < ru.index('mkdir -p /etc/amnezia/amneziawg')
+    assert am.index('vpnchain-bittorrent-policy apply') < am.index('mkdir -p /etc/amnezia/amneziawg')
+    assert ru.rindex('vpnchain-bittorrent-policy apply') > ru.index(
+        'iptables -I FORWARD 1 -o docker0'
+    )
+    assert ru.rindex('vpnchain-bittorrent-policy apply') < ru.index('awg-quick up awg0')
+    assert 'server-ru-policy-state:/run/vpnchain-bittorrent-policy' in compose
+    assert 'server-am-policy-state:/run/vpnchain-bittorrent-policy' in compose
 
 
 def test_policy_allowlist_contains_no_active_destinations():
@@ -114,7 +126,10 @@ def test_loader_has_atomic_backup_readback_rollback_and_ipv6_fail_closed():
     assert 'rollback' in script
     assert 'OWNER_COMMENT="vpnchain-bittorrent-policy"' in script
     assert '-j DROP' in script
-    assert 'RELATED,ESTABLISHED' in script
+    assert '--ctstate NEW,ESTABLISHED' in script
+    assert '--ctstate RELATED,ESTABLISHED' not in script
+    assert 'iptables-restore --test < "$snapshot/ipv4.rules"' in script
+    assert 'ip6tables-restore --test < "$snapshot/ipv6.rules"' in script
 
 
 def test_active_apply_validation_failure_installs_ipv4_and_ipv6_guards(tmp_path):
@@ -179,7 +194,7 @@ with log.open('a') as stream:
     stream.write(name + ' ' + ' '.join(args) + '\\n')
 
 if name.endswith('-save'):
-    pass  # An empty ruleset is a valid baseline in a fresh network namespace.
+    print('*filter\\n:FORWARD ACCEPT [0:0]\\nCOMMIT')
 elif name.endswith('-restore'):
     sys.stdin.read()
 elif args[:2] == ['-C', 'FORWARD']:
@@ -234,9 +249,98 @@ elif args[:1] == ['-S']:
     assert calls.count('ip6tables-save ') == 1
     assert sum(line.startswith('iptables -I FORWARD') for line in calls) == 4
     assert sum(line.startswith('ip6tables -I FORWARD') for line in calls) == 4
+    # Owned jumps are removed only after both guarded snapshots are restored.
     assert sum(line.startswith('iptables -D FORWARD') for line in calls) == 4
     assert sum(line.startswith('ip6tables -D FORWARD') for line in calls) == 4
     assert not (state_dir / 'rollback-snapshot').exists()
+
+
+def test_rollback_restore_failure_reinstalls_dual_stack_fail_closed_guards(tmp_path):
+    fake_bin = tmp_path / 'bin'
+    fake_bin.mkdir()
+    log = tmp_path / 'firewall.log'
+    restore_inputs = tmp_path / 'restore-inputs'
+    restore_inputs.mkdir()
+    backend = fake_bin / 'firewall-backend'
+    backend.write_text(
+        '''#!/bin/sh
+printf '%s %s\\n' "$(basename "$0")" "$*" >> "$FAKE_FIREWALL_LOG"
+case "$(basename "$0"):$*" in
+    *-restore:--test) cat >/dev/null ;;
+    iptables-restore:) cat > "$FAKE_RESTORE_INPUTS/ipv4.actual" ;;
+    ip6tables-restore:) cat > "$FAKE_RESTORE_INPUTS/ipv6.actual"; exit 42 ;;
+esac
+case "$1 $2" in
+    '-C FORWARD') exit 1 ;;
+esac
+cat >/dev/null 2>&1 || true
+exit 0
+'''
+    )
+    backend.chmod(0o755)
+    for name in (
+        'iptables', 'ip6tables', 'iptables-save', 'ip6tables-save',
+        'iptables-restore', 'ip6tables-restore',
+    ):
+        (fake_bin / name).symlink_to(backend)
+    state_dir = tmp_path / 'state'
+    snapshot = state_dir / 'rollback-snapshot'
+    snapshot.mkdir(parents=True)
+    (snapshot / 'ipv4.rules').write_text('*filter\nCOMMIT\n')
+    (snapshot / 'ipv6.rules').write_text('*filter\nCOMMIT\n')
+
+    result = run_loader(
+        'rollback', PATH=f'{fake_bin}:{os.environ["PATH"]}',
+        FAKE_FIREWALL_LOG=str(log), FAKE_RESTORE_INPUTS=str(restore_inputs),
+        VPNCHAIN_BT_POLICY_ROLE='ru',
+        VPNCHAIN_BT_STATE_DIR=str(state_dir),
+    )
+
+    assert result.returncode != 0
+    calls = log.read_text().splitlines()
+    assert calls[:6] == [
+        'iptables-restore --test',
+        'ip6tables-restore --test',
+        'iptables-restore --test',
+        'ip6tables-restore --test',
+        'iptables-restore ',
+        'ip6tables-restore ',
+    ]
+    assert any(line.startswith('iptables -A VPCBTRU ') and line.endswith('-j DROP') for line in calls)
+    assert any(line.startswith('ip6tables -A VPCBTRU ') and line.endswith('-j DROP') for line in calls)
+    restored_ipv4 = (restore_inputs / 'ipv4.actual').read_text()
+    assert '-A FORWARD -i awg0 -m comment --comment vpnchain-bittorrent-policy -j VPCBTRU' in restored_ipv4
+    assert '-A VPCBTRU -m comment --comment vpnchain-bittorrent-policy-denied -j DROP' in restored_ipv4
+    assert snapshot.is_dir()
+
+
+def test_rollback_rejects_missing_role_before_touching_firewall(tmp_path):
+    fake_bin = tmp_path / 'bin'
+    fake_bin.mkdir()
+    log = tmp_path / 'firewall.log'
+    backend = fake_bin / 'firewall-backend'
+    backend.write_text(
+        '#!/bin/sh\nprintf \'%s %s\\n\' "$(basename "$0")" "$*" >> "$FAKE_FIREWALL_LOG"\n'
+    )
+    backend.chmod(0o755)
+    for name in (
+        'iptables', 'ip6tables', 'iptables-save', 'ip6tables-save',
+        'iptables-restore', 'ip6tables-restore',
+    ):
+        (fake_bin / name).symlink_to(backend)
+    snapshot = tmp_path / 'state' / 'rollback-snapshot'
+    snapshot.mkdir(parents=True)
+    (snapshot / 'ipv4.rules').write_text('*filter\nCOMMIT\n')
+    (snapshot / 'ipv6.rules').write_text('*filter\nCOMMIT\n')
+
+    result = run_loader(
+        'rollback', PATH=f'{fake_bin}:{os.environ["PATH"]}',
+        FAKE_FIREWALL_LOG=str(log), VPNCHAIN_BT_POLICY_ROLE='',
+        VPNCHAIN_BT_STATE_DIR=str(tmp_path / 'state'),
+    )
+
+    assert result.returncode != 0
+    assert not log.exists()
 
 
 def test_snapshot_pair_is_not_published_when_ipv6_save_fails(tmp_path):

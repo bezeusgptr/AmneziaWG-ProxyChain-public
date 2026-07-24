@@ -40,19 +40,30 @@ trap cleanup EXIT
 
 "$RUNTIME" exec -d "$SERVER" python3 -c '
 import select, socket
-sockets = []
+listeners = []
+connections = []
 for family, address in ((socket.AF_INET, "10.210.2.3"), (socket.AF_INET6, "fd00:210:2::3")):
-    for port in (443, 6881, 8443):
+    for port in (443, 6881, 6999, 8443):
         sock = socket.socket(family, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind((address, port)); sock.listen(); sockets.append(sock)
+        sock.bind((address, port)); sock.listen(); listeners.append(sock)
     for port in (53, 6881):
         sock = socket.socket(family, socket.SOCK_DGRAM)
-        sock.bind((address, port)); sockets.append(sock)
+        sock.bind((address, port)); connections.append(sock)
 while True:
-    for sock in select.select(sockets, [], [])[0]:
-        if sock.type == socket.SOCK_STREAM:
-            conn, _ = sock.accept(); conn.sendall(b"ok"); conn.close()
+    for sock in select.select(listeners + connections, [], [])[0]:
+        if sock in listeners:
+            conn, _ = sock.accept()
+            if sock.getsockname()[1] == 6999:
+                connections.append(conn)
+            else:
+                conn.sendall(b"ok"); conn.close()
+        elif sock.type == socket.SOCK_STREAM:
+            data = sock.recv(32)
+            if data:
+                sock.sendall(data)
+            else:
+                connections.remove(sock); sock.close()
         else:
             data, peer = sock.recvfrom(32); sock.sendto(data, peer)
 '
@@ -61,7 +72,31 @@ sleep 1
 CLIENT_IFACE="$("$RUNTIME" exec "$ROUTER" ip -o route get 10.210.1.3 | sed -n 's/.* dev \([^ ]*\).*/\1/p')"
 SERVER_IFACE="$("$RUNTIME" exec "$ROUTER" ip -o route get 10.210.2.3 | sed -n 's/.* dev \([^ ]*\).*/\1/p')"
 [[ -n "$CLIENT_IFACE" && -n "$SERVER_IFACE" ]]
+# Rootless Podman rejects a transit source from another managed network. This
+# test-only edge-router SNAT models the production gateway's egress NAT.
 "$RUNTIME" exec "$ROUTER" iptables -t nat -A POSTROUTING -o "$SERVER_IFACE" -j MASQUERADE
+
+# Establish a blocked TCP flow before enforcement. A generic
+# RELATED,ESTABLISHED accept would let this connection bypass the allowlist.
+"$RUNTIME" exec -d "$CLIENT" python3 -c '
+import pathlib, socket, time
+sock = socket.create_connection(("10.210.2.3", 6999), timeout=2)
+sock.settimeout(1)
+pathlib.Path("/tmp/preexisting-ready").touch()
+while not pathlib.Path("/tmp/policy-applied").exists(): time.sleep(0.05)
+try:
+    sock.sendall(b"blocked")
+    allowed = sock.recv(7) == b"blocked"
+except OSError:
+    allowed = False
+pathlib.Path("/tmp/preexisting-result").write_text("allowed" if allowed else "blocked")
+'
+for _ in $(seq 1 50); do
+    "$RUNTIME" exec "$CLIENT" test -f /tmp/preexisting-ready && break
+    sleep 0.1
+done
+"$RUNTIME" exec "$CLIENT" test -f /tmp/preexisting-ready
+
 "$RUNTIME" exec "$ROUTER" /bin/bash -ceu '
 cat >/tmp/allowed-egress.conf <<EOF
 tcp 10.210.2.3/32 443
@@ -80,11 +115,18 @@ vpnchain-bittorrent-policy apply
 vpnchain-bittorrent-policy apply
 [ "$(iptables -S FORWARD | grep -c -- "-j VPCBTRU")" -eq 1 ]
 [ "$(ip6tables -S FORWARD | grep -c -- "-j VPCBTRU")" -eq 1 ]
-iptables -C VPCBTRU -p tcp -d 10.210.2.3/32 --dport 443 -m conntrack --ctstate NEW -m comment --comment vpnchain-bittorrent-policy -j ACCEPT
-iptables -C VPCBTRU -p udp -d 10.210.2.3/32 --dport 53 -m conntrack --ctstate NEW -m comment --comment vpnchain-bittorrent-policy -j ACCEPT
+iptables -C VPCBTRU -p tcp -d 10.210.2.3/32 --dport 443 -m conntrack --ctstate NEW,ESTABLISHED -m comment --comment vpnchain-bittorrent-policy -j ACCEPT
+iptables -C VPCBTRU -p udp -d 10.210.2.3/32 --dport 53 -m conntrack --ctstate NEW,ESTABLISHED -m comment --comment vpnchain-bittorrent-policy -j ACCEPT
 iptables -C VPCBTRU -m comment --comment vpnchain-bittorrent-policy-denied -j DROP
 ip6tables -C VPCBTRU -m comment --comment vpnchain-bittorrent-policy-denied -j DROP
 ' -- "$CLIENT_IFACE"
+
+"$RUNTIME" exec "$CLIENT" touch /tmp/policy-applied
+for _ in $(seq 1 50); do
+    "$RUNTIME" exec "$CLIENT" test -f /tmp/preexisting-result && break
+    sleep 0.1
+done
+test "$("$RUNTIME" exec "$CLIENT" cat /tmp/preexisting-result)" = blocked
 
 "$RUNTIME" exec "$CLIENT" python3 -c '
 import socket

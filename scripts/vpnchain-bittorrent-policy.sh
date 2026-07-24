@@ -108,11 +108,10 @@ render_rules() {
     chain="$(chain_name)"
     {
         printf '*filter\n:%s - [0:0]\n-F %s\n' "$chain" "$chain"
-        printf -- '-A %s -m conntrack --ctstate RELATED,ESTABLISHED -m comment --comment %s -j ACCEPT\n' "$chain" "$OWNER_COMMENT"
         if [[ "$family" == '4' ]]; then
             while read -r protocol cidr port; do
                 [[ -n "${protocol:-}" ]] || continue
-                printf -- '-A %s -p %s -d %s --dport %s -m conntrack --ctstate NEW -m comment --comment %s -j ACCEPT\n' \
+                printf -- '-A %s -p %s -d %s --dport %s -m conntrack --ctstate NEW,ESTABLISHED -m comment --comment %s -j ACCEPT\n' \
                     "$chain" "$protocol" "$cidr" "$port" "$OWNER_COMMENT"
             done < "$normalized"
         fi
@@ -123,6 +122,33 @@ render_rules() {
         fi
         printf 'COMMIT\n'
     } > "$output"
+}
+
+render_guarded_snapshot() {
+    local source="$1" output="$2" chain
+    chain="$(chain_name)"
+    awk -v chain="$chain" -v interface="$INTERFACE" -v owner="$OWNER_COMMENT" '
+        $0 == "*filter" {
+            in_filter = 1
+            saw_filter = 1
+            print
+            print ":" chain " - [0:0]"
+            next
+        }
+        in_filter && !jump_written && substr($0, 1, 1) == "-" {
+            print "-A FORWARD -i " interface " -m comment --comment " owner " -j " chain
+            jump_written = 1
+        }
+        in_filter && $0 == "COMMIT" {
+            if (!jump_written) {
+                print "-A FORWARD -i " interface " -m comment --comment " owner " -j " chain
+            }
+            print "-A " chain " -m comment --comment " owner "-denied -j DROP"
+            in_filter = 0
+        }
+        { print }
+        END { if (!saw_filter) exit 42 }
+    ' "$source" > "$output"
 }
 
 remove_policy() {
@@ -250,12 +276,31 @@ apply_policy() {
 
 rollback_policy() {
     require_firewall_tools
-    local snapshot="$STATE_DIR/rollback-snapshot"
+    # The restore itself is role-agnostic, but any restore failure must be able
+    # to install the correct owned fail-closed chain.
+    chain_name >/dev/null
+    local snapshot="$STATE_DIR/rollback-snapshot" guarded4 guarded6
     [[ -f "$snapshot/ipv4.rules" && -f "$snapshot/ipv6.rules" ]] \
         || { fail "rollback snapshots not found in $STATE_DIR"; return 1; }
+    iptables-restore --test < "$snapshot/ipv4.rules"
+    ip6tables-restore --test < "$snapshot/ipv6.rules"
+    guarded4="$(mktemp "$STATE_DIR/.rollback-guarded-v4.XXXXXX")"
+    guarded6="$(mktemp "$STATE_DIR/.rollback-guarded-v6.XXXXXX")"
+    if ! render_guarded_snapshot "$snapshot/ipv4.rules" "$guarded4" \
+        || ! render_guarded_snapshot "$snapshot/ipv6.rules" "$guarded6" \
+        || ! iptables-restore --test < "$guarded4" \
+        || ! ip6tables-restore --test < "$guarded6"; then
+        rm -f "$guarded4" "$guarded6"
+        return 1
+    fi
+    # Each full restore now contains its own DROP guard. Therefore a failure in
+    # the second family cannot expose the baseline restored for the first.
+    trap 'rm -f "$guarded4" "$guarded6"; install_fail_closed' ERR
+    iptables-restore < "$guarded4"
+    ip6tables-restore < "$guarded6"
     remove_policy
-    iptables-restore < "$snapshot/ipv4.rules"
-    ip6tables-restore < "$snapshot/ipv6.rules"
+    trap - ERR
+    rm -f "$guarded4" "$guarded6"
     rm -rf "$snapshot"
     rm -f "$STATE_DIR/candidate-v4.rules" "$STATE_DIR/candidate-v6.rules" \
         "$STATE_DIR/allowlist.normalized"
