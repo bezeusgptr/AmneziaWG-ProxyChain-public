@@ -24,5 +24,11 @@ echo "Starting awg-quick on awg0 for AM node..."
 ip link delete awg0 2>/dev/null || true
 env WG_QUICK_USERSPACE_IMPLEMENTATION=amneziawg-go awg-quick up awg0
 
+# Независимый AM egress-gate. disabled сохраняет текущее поведение, а active
+# режим всегда ставит проектный jump перед broad ACCEPT из AWG PostUp.
+VPNCHAIN_BT_POLICY_MODE="${VPNCHAIN_BT_POLICY_MODE:-disabled}" \
+VPNCHAIN_BT_POLICY_ROLE=am \
+    vpnchain-bittorrent-policy apply
+
 echo "Tailing logs..."
 tail -f /dev/null

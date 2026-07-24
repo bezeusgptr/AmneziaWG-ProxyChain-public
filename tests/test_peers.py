@@ -1,6 +1,13 @@
 from vpnchain.db import connect, init_db
 from vpnchain.keys import KeyGenerator
-from vpnchain.peers import add_peer, get_peer, list_peers, render_amneziawg_ios_config, rotate_peer
+from vpnchain.peers import (
+    DEFAULT_CLIENT_DNS,
+    add_peer,
+    get_peer,
+    list_peers,
+    render_amneziawg_ios_config,
+    rotate_peer,
+)
 
 
 def test_add_peer_persists_public_state_not_private_key(tmp_path):
@@ -34,7 +41,7 @@ def test_default_amneziawg_profile_includes_dns_mtu_and_obfuscation_params(tmp_p
     result = add_peer(db, 'android', platform='android', export_profile='amneziawg', keygen=KeyGenerator(seed='android'))
 
     config = result.client_config
-    assert 'DNS = 8.8.8.8, 1.1.1.1' in config
+    assert f'DNS = {DEFAULT_CLIENT_DNS}' in config
     assert 'MTU = 1280' in config
     assert 'AllowedIPs = 0.0.0.0/0' in config
     assert '::/0' not in config
@@ -52,7 +59,7 @@ def test_amneziawg_ios_profile_is_strict_supported_conf(tmp_path):
     assert '[Interface]' in config
     assert '[Peer]' in config
     assert f'PrivateKey = {result.private_key}' in config
-    assert 'DNS = 8.8.8.8, 1.1.1.1' in config
+    assert f'DNS = {DEFAULT_CLIENT_DNS}' in config
     assert 'MTU = 1280' in config
     assert 'AllowedIPs = 0.0.0.0/0' in config
     assert '::/0' not in config
@@ -91,6 +98,7 @@ def test_client_config_embeds_server_public_key_and_endpoint(tmp_path):
     assert 'Endpoint = ru.example.test:51820' in result.client_config
     assert '<server-public-key>' not in result.client_config
     assert '<server-endpoint>' not in result.client_config
+
 
 def test_default_peer_addresses_match_ru_awg0_subnet(tmp_path):
     db = tmp_path / 'vpnchain.sqlite'

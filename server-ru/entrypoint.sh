@@ -161,6 +161,13 @@ if [ -f /etc/amnezia/amneziawg/awg1.conf ]; then
     iptables -t nat -A POSTROUTING -o awg1 -j MASQUERADE
 fi
 
+# Политика запрета BitTorrent подключается первой в FORWARD и поэтому не
+# обходится широкими ACCEPT-правилами выше. По умолчанию disabled удаляет
+# только проектные цепочки; enforce без валидного allowlist завершится ошибкой.
+VPNCHAIN_BT_POLICY_MODE="${VPNCHAIN_BT_POLICY_MODE:-disabled}" \
+VPNCHAIN_BT_POLICY_ROLE=ru \
+    vpnchain-bittorrent-policy apply
+
 echo "AmneziaWG is running. Tailing logs..."
 # Оставляем контейнер работать
 tail -f /dev/null

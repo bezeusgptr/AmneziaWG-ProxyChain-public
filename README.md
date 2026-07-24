@@ -21,6 +21,7 @@
 
 - 🚀 [**Быстрый старт v2: установка на два сервера**](./docs/v2/quick-start.md) — рекомендуемая инструкция для текущей версии.
 - 📌 [**Состояние v2**](./docs/v2/status.md) — актуальные возможности, ограничения и серверные заметки.
+- 🔒 [**Политика ограничения BitTorrent**](./docs/v2/bittorrent-policy.md) — default-disabled режимы, строгий allowlist и проверяемый apply/rollback runbook.
 - 📖 [**Низкоуровневая справка по Docker runtime (DEPLOYMENT.md)**](./DEPLOYMENT.md) — ручная настройка Docker, модуля ядра и env-шаблонов.
 - 🏗️ [**Архитектура (architecture.md)**](./architecture.md) — описание узлов, подсетей, слоев NAT и маршрутизации.
 - ⚙️ [**Скрипт установки модуля ядра**](./install_kernel_module.sh) — автоустановка `amneziawg` на новый сервер.
