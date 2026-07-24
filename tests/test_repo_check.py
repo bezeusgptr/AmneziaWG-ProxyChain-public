@@ -33,7 +33,7 @@ def test_repo_check_flags_generated_client_config_filename(tmp_path):
     assert 'private key or generated client config filename' in reasons(scan_repo(tmp_path))
 
 
-def test_repo_check_ignores_unrelated_client_filename(tmp_path):
-    (tmp_path / 'client-notes.txt').write_text('redacted')
+def test_repo_check_requires_client_config_suffix(tmp_path):
+    (tmp_path / 'client-alice.conf.bak').write_text('redacted')
 
     assert scan_repo(tmp_path) == []
