@@ -140,6 +140,14 @@ remove_policy() {
     ip6tables -X "$chain" 2>/dev/null || true
 }
 
+place_jump_first() {
+    local tool="$1" chain="$2"
+    while "$tool" -C FORWARD -i "$INTERFACE" -m comment --comment "$OWNER_COMMENT" -j "$chain" 2>/dev/null; do
+        "$tool" -D FORWARD -i "$INTERFACE" -m comment --comment "$OWNER_COMMENT" -j "$chain"
+    done
+    "$tool" -I FORWARD 1 -i "$INTERFACE" -m comment --comment "$OWNER_COMMENT" -j "$chain"
+}
+
 install_fail_closed() {
     local chain
     chain="$(chain_name)"
@@ -147,13 +155,11 @@ install_fail_closed() {
     iptables -N "$chain" 2>/dev/null || true
     iptables -F "$chain" 2>/dev/null || true
     iptables -A "$chain" -m comment --comment "$OWNER_COMMENT-denied" -j DROP 2>/dev/null || true
-    iptables -C FORWARD -i "$INTERFACE" -m comment --comment "$OWNER_COMMENT" -j "$chain" 2>/dev/null \
-        || iptables -I FORWARD 1 -i "$INTERFACE" -m comment --comment "$OWNER_COMMENT" -j "$chain" 2>/dev/null || true
+    place_jump_first iptables "$chain" 2>/dev/null || true
     ip6tables -N "$chain" 2>/dev/null || true
     ip6tables -F "$chain" 2>/dev/null || true
     ip6tables -A "$chain" -m comment --comment "$OWNER_COMMENT-denied" -j DROP 2>/dev/null || true
-    ip6tables -C FORWARD -i "$INTERFACE" -m comment --comment "$OWNER_COMMENT" -j "$chain" 2>/dev/null \
-        || ip6tables -I FORWARD 1 -i "$INTERFACE" -m comment --comment "$OWNER_COMMENT" -j "$chain" 2>/dev/null || true
+    place_jump_first ip6tables "$chain" 2>/dev/null || true
 }
 
 read_back() {
@@ -172,8 +178,8 @@ apply_policy() {
     if [[ "$MODE" == 'disabled' ]]; then
         [[ "$ROLE" == 'ru' || "$ROLE" == 'am' ]] || { fail 'disabled apply still requires role to remove the correct owned chain'; return 1; }
         remove_policy
-        rm -f "$STATE_DIR/rollback-v4.rules" "$STATE_DIR/rollback-v6.rules" \
-            "$STATE_DIR/candidate-v4.rules" "$STATE_DIR/candidate-v6.rules" \
+        rm -rf "$STATE_DIR/rollback-snapshot"
+        rm -f "$STATE_DIR/candidate-v4.rules" "$STATE_DIR/candidate-v6.rules" \
             "$STATE_DIR/allowlist.normalized"
         printf 'BitTorrent policy is disabled; owned chains are absent\n'
         return 0
@@ -184,10 +190,11 @@ apply_policy() {
     trap 'install_fail_closed' ERR
     validate_config >/dev/null
     install -d -m 0700 "$STATE_DIR"
-    local normalized rules4 rules6
+    local normalized rules4 rules6 snapshot snapshot_tmp
     normalized="$STATE_DIR/allowlist.normalized"
     rules4="$STATE_DIR/candidate-v4.rules"
     rules6="$STATE_DIR/candidate-v6.rules"
+    snapshot="$STATE_DIR/rollback-snapshot"
     normalize_allowlist "$normalized"
     chmod 0600 "$normalized"
     render_rules 4 "$rules4" "$normalized"
@@ -195,9 +202,15 @@ apply_policy() {
     chmod 0600 "$rules4" "$rules6"
 
     umask 077
-    if [[ ! -f "$STATE_DIR/rollback-v4.rules" || ! -f "$STATE_DIR/rollback-v6.rules" ]]; then
-        iptables-save > "$STATE_DIR/rollback-v4.rules"
-        ip6tables-save > "$STATE_DIR/rollback-v6.rules"
+    if [[ ! -d "$snapshot" ]]; then
+        snapshot_tmp="$(mktemp -d "$STATE_DIR/.rollback-snapshot.XXXXXX")"
+        if ! iptables-save > "$snapshot_tmp/ipv4.rules" \
+            || ! ip6tables-save > "$snapshot_tmp/ipv6.rules"; then
+            rm -rf "$snapshot_tmp"
+            return 1
+        fi
+        chmod 0600 "$snapshot_tmp/ipv4.rules" "$snapshot_tmp/ipv6.rules"
+        mv "$snapshot_tmp" "$snapshot"
     fi
 
     iptables-restore --test --noflush < "$rules4"
@@ -206,10 +219,8 @@ apply_policy() {
     ip6tables-restore --noflush < "$rules6"
     local chain
     chain="$(chain_name)"
-    iptables -C FORWARD -i "$INTERFACE" -m comment --comment "$OWNER_COMMENT" -j "$chain" 2>/dev/null \
-        || iptables -I FORWARD 1 -i "$INTERFACE" -m comment --comment "$OWNER_COMMENT" -j "$chain"
-    ip6tables -C FORWARD -i "$INTERFACE" -m comment --comment "$OWNER_COMMENT" -j "$chain" 2>/dev/null \
-        || ip6tables -I FORWARD 1 -i "$INTERFACE" -m comment --comment "$OWNER_COMMENT" -j "$chain"
+    place_jump_first iptables "$chain"
+    place_jump_first ip6tables "$chain"
     read_back >/dev/null
     trap - ERR
     printf 'BitTorrent policy applied: mode=%s role=%s\n' "$MODE" "$ROLE"
@@ -217,13 +228,14 @@ apply_policy() {
 
 rollback_policy() {
     require_firewall_tools
-    [[ -f "$STATE_DIR/rollback-v4.rules" && -f "$STATE_DIR/rollback-v6.rules" ]] \
+    local snapshot="$STATE_DIR/rollback-snapshot"
+    [[ -f "$snapshot/ipv4.rules" && -f "$snapshot/ipv6.rules" ]] \
         || { fail "rollback snapshots not found in $STATE_DIR"; return 1; }
     remove_policy
-    iptables-restore < "$STATE_DIR/rollback-v4.rules"
-    ip6tables-restore < "$STATE_DIR/rollback-v6.rules"
-    rm -f "$STATE_DIR/rollback-v4.rules" "$STATE_DIR/rollback-v6.rules" \
-        "$STATE_DIR/candidate-v4.rules" "$STATE_DIR/candidate-v6.rules" \
+    iptables-restore < "$snapshot/ipv4.rules"
+    ip6tables-restore < "$snapshot/ipv6.rules"
+    rm -rf "$snapshot"
+    rm -f "$STATE_DIR/candidate-v4.rules" "$STATE_DIR/candidate-v6.rules" \
         "$STATE_DIR/allowlist.normalized"
     printf 'Firewall rollback restored for IPv4 and IPv6\n'
 }

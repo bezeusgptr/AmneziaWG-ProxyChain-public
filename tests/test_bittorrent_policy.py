@@ -126,6 +126,9 @@ def test_active_apply_validation_failure_installs_ipv4_and_ipv6_guards(tmp_path)
     backend.write_text(
         '''#!/bin/sh
 printf '%s %s\\n' "$(basename "$0")" "$*" >> "$FAKE_FIREWALL_LOG"
+case "$1 $2" in
+    '-C FORWARD') exit 1 ;;
+esac
 exit 0
 '''
     )
@@ -228,7 +231,52 @@ elif args[:1] == ['-S']:
     calls = log.read_text().splitlines()
     assert calls.count('iptables-save ') == 1
     assert calls.count('ip6tables-save ') == 1
-    assert sum(line.startswith('iptables -I FORWARD') for line in calls) == 1
-    assert sum(line.startswith('ip6tables -I FORWARD') for line in calls) == 1
-    assert not (state_dir / 'rollback-v4.rules').exists()
-    assert not (state_dir / 'rollback-v6.rules').exists()
+    assert sum(line.startswith('iptables -I FORWARD') for line in calls) == 2
+    assert sum(line.startswith('ip6tables -I FORWARD') for line in calls) == 2
+    assert sum(line.startswith('iptables -D FORWARD') for line in calls) == 2
+    assert sum(line.startswith('ip6tables -D FORWARD') for line in calls) == 2
+    assert not (state_dir / 'rollback-snapshot').exists()
+
+
+def test_snapshot_pair_is_not_published_when_ipv6_save_fails(tmp_path):
+    fake_bin = tmp_path / 'bin'
+    fake_bin.mkdir()
+    backend = fake_bin / 'firewall-backend'
+    backend.write_text(
+        '''#!/bin/sh
+case "$(basename "$0")" in
+    ip6tables-save) exit 1 ;;
+    iptables-save) printf '*filter\\nCOMMIT\\n' ;;
+esac
+case "$1 $2" in
+    '-C FORWARD') exit 1 ;;
+esac
+exit 0
+'''
+    )
+    backend.chmod(0o755)
+    for name in (
+        'iptables',
+        'ip6tables',
+        'iptables-save',
+        'ip6tables-save',
+        'iptables-restore',
+        'ip6tables-restore',
+    ):
+        (fake_bin / name).symlink_to(backend)
+
+    allowlist = tmp_path / 'allowed-egress.conf'
+    allowlist.write_text('tcp 192.0.2.10/32 443\n')
+    state_dir = tmp_path / 'state'
+    result = run_loader(
+        'apply',
+        PATH=f'{fake_bin}:{os.environ["PATH"]}',
+        VPNCHAIN_BT_POLICY_MODE='enforce',
+        VPNCHAIN_BT_POLICY_ROLE='ru',
+        VPNCHAIN_BT_ALLOWLIST=str(allowlist),
+        VPNCHAIN_BT_STATE_DIR=str(state_dir),
+    )
+
+    assert result.returncode != 0
+    assert not (state_dir / 'rollback-snapshot').exists()
+    assert list(state_dir.glob('.rollback-snapshot.*')) == []
