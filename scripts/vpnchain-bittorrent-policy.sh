@@ -179,6 +179,9 @@ apply_policy() {
         return 0
     fi
 
+    # Once firewall tools are available, every active-mode failure must leave
+    # the client interface guarded, including validation and backup failures.
+    trap 'install_fail_closed' ERR
     validate_config >/dev/null
     install -d -m 0700 "$STATE_DIR"
     local normalized rules4 rules6
@@ -197,7 +200,6 @@ apply_policy() {
         ip6tables-save > "$STATE_DIR/rollback-v6.rules"
     fi
 
-    trap 'install_fail_closed' ERR
     iptables-restore --test --noflush < "$rules4"
     ip6tables-restore --test --noflush < "$rules6"
     iptables-restore --noflush < "$rules4"

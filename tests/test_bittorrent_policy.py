@@ -117,6 +117,45 @@ def test_loader_has_atomic_backup_readback_rollback_and_ipv6_fail_closed():
     assert 'RELATED,ESTABLISHED' in script
 
 
+def test_active_apply_validation_failure_installs_ipv4_and_ipv6_guards(tmp_path):
+    fake_bin = tmp_path / 'bin'
+    fake_bin.mkdir()
+    log = tmp_path / 'firewall.log'
+    log.touch()
+    backend = fake_bin / 'firewall-backend'
+    backend.write_text(
+        '''#!/bin/sh
+printf '%s %s\\n' "$(basename "$0")" "$*" >> "$FAKE_FIREWALL_LOG"
+exit 0
+'''
+    )
+    backend.chmod(0o755)
+    for name in (
+        'iptables',
+        'ip6tables',
+        'iptables-save',
+        'ip6tables-save',
+        'iptables-restore',
+        'ip6tables-restore',
+    ):
+        (fake_bin / name).symlink_to(backend)
+
+    result = run_loader(
+        'apply',
+        PATH=f'{fake_bin}:{os.environ["PATH"]}',
+        FAKE_FIREWALL_LOG=str(log),
+        VPNCHAIN_BT_POLICY_MODE='enforce',
+        VPNCHAIN_BT_POLICY_ROLE='ru',
+        VPNCHAIN_BT_ALLOWLIST=str(tmp_path / 'missing.policy'),
+        VPNCHAIN_BT_STATE_DIR=str(tmp_path / 'state'),
+    )
+
+    assert result.returncode != 0
+    calls = log.read_text().splitlines()
+    assert any(line.startswith('iptables -A VPCBTRU ') and line.endswith('-j DROP') for line in calls)
+    assert any(line.startswith('ip6tables -A VPCBTRU ') and line.endswith('-j DROP') for line in calls)
+
+
 def test_repeated_apply_keeps_original_rollback_snapshot(tmp_path):
     fake_bin = tmp_path / 'bin'
     fake_bin.mkdir()
