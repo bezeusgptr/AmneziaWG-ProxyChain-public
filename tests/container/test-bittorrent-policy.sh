@@ -124,6 +124,14 @@ export VPNCHAIN_BT_POLICY_INTERFACE="$1"
 export VPNCHAIN_BT_ALLOWLIST=/tmp/allowed-egress.conf
 vpnchain-bittorrent-policy read-back >/tmp/read-back.txt
 vpnchain-bittorrent-policy rollback
+iptables -N VPCBTRU
+ip6tables -N VPCBTRU
+iptables -I FORWARD 1 -i "$1" -m comment --comment vpnchain-bittorrent-policy-reorder-guard -j VPCBTRU
+ip6tables -I FORWARD 1 -i "$1" -m comment --comment vpnchain-bittorrent-policy-reorder-guard -j VPCBTRU
+export VPNCHAIN_BT_POLICY_MODE=disabled
+vpnchain-bittorrent-policy apply
+! iptables -S FORWARD | grep -q vpnchain-bittorrent-policy
+! ip6tables -S FORWARD | grep -q vpnchain-bittorrent-policy
 iptables-save | grep -v "^#" >/tmp/after-v4.rules
 ip6tables-save | grep -v "^#" >/tmp/after-v6.rules
 diff -u /tmp/baseline-v4.rules /tmp/after-v4.rules

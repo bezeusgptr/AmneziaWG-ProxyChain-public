@@ -126,13 +126,15 @@ render_rules() {
 }
 
 remove_policy() {
-    local chain
+    local chain comment
     chain="$(chain_name)"
-    while iptables -C FORWARD -i "$INTERFACE" -m comment --comment "$OWNER_COMMENT" -j "$chain" 2>/dev/null; do
-        iptables -D FORWARD -i "$INTERFACE" -m comment --comment "$OWNER_COMMENT" -j "$chain"
-    done
-    while ip6tables -C FORWARD -i "$INTERFACE" -m comment --comment "$OWNER_COMMENT" -j "$chain" 2>/dev/null; do
-        ip6tables -D FORWARD -i "$INTERFACE" -m comment --comment "$OWNER_COMMENT" -j "$chain"
+    for comment in "$OWNER_COMMENT" "$OWNER_COMMENT-reorder-guard"; do
+        while iptables -C FORWARD -i "$INTERFACE" -m comment --comment "$comment" -j "$chain" 2>/dev/null; do
+            iptables -D FORWARD -i "$INTERFACE" -m comment --comment "$comment" -j "$chain"
+        done
+        while ip6tables -C FORWARD -i "$INTERFACE" -m comment --comment "$comment" -j "$chain" 2>/dev/null; do
+            ip6tables -D FORWARD -i "$INTERFACE" -m comment --comment "$comment" -j "$chain"
+        done
     done
     iptables -F "$chain" 2>/dev/null || true
     iptables -X "$chain" 2>/dev/null || true
