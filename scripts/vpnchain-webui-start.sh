@@ -29,7 +29,7 @@ exec env \
     python3 -m vpnchain \
     --db "$DB" \
     webui \
-    --host 0.0.0.0 \
+    --host 127.0.0.1 \
     --port "$PORT" \
     --interface awg0 \
     --activity-tool awg \
