@@ -19,3 +19,9 @@ def test_repo_check_detects_secret_and_runtime_files(tmp_path):
 def test_repo_check_allows_templates_and_redacted_values(tmp_path):
     (tmp_path / 'awg0.conf.template').write_text('PrivateKey = <server-private-key>\n')
     assert scan_repo(tmp_path) == []
+
+
+def test_repo_check_flags_private_key_marker_inside_filename(tmp_path):
+    (tmp_path / 'archived_private_key.txt').write_text('redacted')
+
+    assert 'private key or generated client config filename' in reasons(scan_repo(tmp_path))

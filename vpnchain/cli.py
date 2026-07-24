@@ -12,6 +12,8 @@ from .peers import DEFAULT_EXPORT_PROFILE, add_peer, get_peer, list_peers, remov
 from .webui import serve as serve_webui
 from .repo_check import scan_repo
 
+PEER_NOT_FOUND = 'peer not found'
+
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog='vpnchain')
@@ -60,65 +62,145 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.cmd == 'init-db':
-        init_db(args.db); print(f'initialized {args.db}'); return 0
-    if args.cmd == 'repo-check':
-        findings = scan_repo(args.path)
-        for f in findings:
-            print(f'{f.path}: {f.reason}')
-        return 1 if findings else 0
-    if args.cmd == 'webui':
-        from .webui import _split_ssh_options
-        serve_webui(
-            args.db,
-            host=args.host,
-            port=args.port,
-            interface=args.interface,
-            activity_tool=args.activity_tool,
-            remote=args.remote,
-            remote_db=args.remote_db,
-            remote_vpnchain=args.remote_vpnchain,
-            ssh_options=_split_ssh_options(args.ssh_option),
-            manager_command=args.manager_command,
-            activity_command=args.activity_command or None,
-            basic_auth=args.basic_auth,
-        )
+        init_db(args.db)
+        print(f'initialized {args.db}')
         return 0
+    if args.cmd == 'repo-check':
+        return _handle_repo_check(args)
+    if args.cmd == 'webui':
+        return _handle_webui(args)
     if args.cmd == 'peer':
-        if args.peer_cmd == 'add':
-            output_path = _preflight_output(args.output)
-            init_db(args.db)
-            try:
-                result = add_peer(args.db, args.name, address=args.address, client_type=args.client_type, platform=args.platform, export_profile=args.export_profile, notes=args.notes, server_public_key=args.server_public_key, server_endpoint=args.server_endpoint)
-            except KeyGenerationError as exc:
-                print(str(exc), file=sys.stderr); return 1
-            _emit_or_write(args.db, result.client_config, output_path, args.print_once or not output_path, args.ttl_minutes)
-            print(json.dumps(_public_peer(result.peer), indent=2))
-            return 0
-        if args.peer_cmd == 'list':
-            init_db(args.db); print(json.dumps([_public_peer(p) for p in list_peers(args.db)], indent=2)); return 0
-        if args.peer_cmd == 'show':
-            init_db(args.db); peer = get_peer(args.db, args.name)
-            if not peer: print('peer not found', file=sys.stderr); return 1
-            print(json.dumps(_public_peer(peer), indent=2)); return 0
-        if args.peer_cmd in ('disable', 'enable'):
-            init_db(args.db)
-            if not set_enabled(args.db, args.name, args.peer_cmd == 'enable'): print('peer not found', file=sys.stderr); return 1
-            print(f'{args.peer_cmd}d {args.name}'); return 0
-        if args.peer_cmd == 'remove':
-            init_db(args.db)
-            if not remove_peer(args.db, args.name): print('peer not found', file=sys.stderr); return 1
-            print(f'removed {args.name}'); return 0
-        if args.peer_cmd == 'rotate':
-            output_path = _preflight_output(args.output)
-            init_db(args.db)
-            try: result = rotate_peer(args.db, args.name, server_public_key=args.server_public_key, server_endpoint=args.server_endpoint)
-            except KeyError: print('peer not found', file=sys.stderr); return 1
-            except KeyGenerationError as exc: print(str(exc), file=sys.stderr); return 1
-            _emit_or_write(args.db, result.client_config, output_path, not output_path, args.ttl_minutes)
-            print(json.dumps(_public_peer(result.peer), indent=2)); return 0
-        if args.peer_cmd == 'export':
-            print('export requires a private key and is only available at add/rotate time', file=sys.stderr)
-            return 2
+        return _handle_peer(args)
+    return 2
+
+
+def _handle_repo_check(args: argparse.Namespace) -> int:
+    findings = scan_repo(args.path)
+    for finding in findings:
+        print(f'{finding.path}: {finding.reason}')
+    return 1 if findings else 0
+
+
+def _handle_webui(args: argparse.Namespace) -> int:
+    from .webui import _split_ssh_options
+
+    serve_webui(
+        args.db,
+        host=args.host,
+        port=args.port,
+        interface=args.interface,
+        activity_tool=args.activity_tool,
+        remote=args.remote,
+        remote_db=args.remote_db,
+        remote_vpnchain=args.remote_vpnchain,
+        ssh_options=_split_ssh_options(args.ssh_option),
+        manager_command=args.manager_command,
+        activity_command=args.activity_command or None,
+        basic_auth=args.basic_auth,
+    )
+    return 0
+
+
+def _handle_peer(args: argparse.Namespace) -> int:
+    handlers = {
+        'add': _handle_peer_add,
+        'list': _handle_peer_list,
+        'show': _handle_peer_show,
+        'disable': _handle_peer_enabled,
+        'enable': _handle_peer_enabled,
+        'remove': _handle_peer_remove,
+        'rotate': _handle_peer_rotate,
+        'export': _handle_peer_export,
+    }
+    return handlers[args.peer_cmd](args)
+
+
+def _handle_peer_add(args: argparse.Namespace) -> int:
+    output_path = _preflight_output(args.output)
+    init_db(args.db)
+    try:
+        result = add_peer(
+            args.db,
+            args.name,
+            address=args.address,
+            client_type=args.client_type,
+            platform=args.platform,
+            export_profile=args.export_profile,
+            notes=args.notes,
+            server_public_key=args.server_public_key,
+            server_endpoint=args.server_endpoint,
+        )
+    except KeyGenerationError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    _emit_or_write(
+        args.db,
+        result.client_config,
+        output_path,
+        args.print_once or not output_path,
+        args.ttl_minutes,
+    )
+    print(json.dumps(_public_peer(result.peer), indent=2))
+    return 0
+
+
+def _handle_peer_list(args: argparse.Namespace) -> int:
+    init_db(args.db)
+    print(json.dumps([_public_peer(peer) for peer in list_peers(args.db)], indent=2))
+    return 0
+
+
+def _handle_peer_show(args: argparse.Namespace) -> int:
+    init_db(args.db)
+    peer = get_peer(args.db, args.name)
+    if not peer:
+        print(PEER_NOT_FOUND, file=sys.stderr)
+        return 1
+    print(json.dumps(_public_peer(peer), indent=2))
+    return 0
+
+
+def _handle_peer_enabled(args: argparse.Namespace) -> int:
+    init_db(args.db)
+    if not set_enabled(args.db, args.name, args.peer_cmd == 'enable'):
+        print(PEER_NOT_FOUND, file=sys.stderr)
+        return 1
+    print(f'{args.peer_cmd}d {args.name}')
+    return 0
+
+
+def _handle_peer_remove(args: argparse.Namespace) -> int:
+    init_db(args.db)
+    if not remove_peer(args.db, args.name):
+        print(PEER_NOT_FOUND, file=sys.stderr)
+        return 1
+    print(f'removed {args.name}')
+    return 0
+
+
+def _handle_peer_rotate(args: argparse.Namespace) -> int:
+    output_path = _preflight_output(args.output)
+    init_db(args.db)
+    try:
+        result = rotate_peer(
+            args.db,
+            args.name,
+            server_public_key=args.server_public_key,
+            server_endpoint=args.server_endpoint,
+        )
+    except KeyError:
+        print(PEER_NOT_FOUND, file=sys.stderr)
+        return 1
+    except KeyGenerationError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    _emit_or_write(args.db, result.client_config, output_path, not output_path, args.ttl_minutes)
+    print(json.dumps(_public_peer(result.peer), indent=2))
+    return 0
+
+
+def _handle_peer_export(args: argparse.Namespace) -> int:
+    print('export requires a private key and is only available at add/rotate time', file=sys.stderr)
     return 2
 
 
