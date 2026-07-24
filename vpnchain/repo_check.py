@@ -11,7 +11,10 @@ SECRET_PATTERNS = [
 DANGEROUS_NAMES = {'.env'}
 DANGEROUS_SUFFIXES = {'.sqlite', '.sqlite3', '.db'}
 DANGEROUS_PARTS = {'backups', 'generated', 'tmp'}
-PRIVATE_KEY_RE = re.compile(r'(?:private[_-]?key)|(?:client.*\.conf$)', re.I)
+PRIVATE_KEY_PATTERNS = (
+    re.compile(r'private[_-]?key', re.I),
+    re.compile(r'client.*\.conf$', re.I),
+)
 SKIP_DIRS = {'.git', '__pycache__', '.pytest_cache'}
 
 @dataclass(frozen=True)
@@ -47,7 +50,7 @@ def _path_findings(path: Path, relative_path: Path) -> list[Finding]:
         findings.append(Finding(relative, 'SQLite/database file'))
     if any(part in DANGEROUS_PARTS for part in relative_path.parts):
         findings.append(Finding(relative, 'runtime/generated path'))
-    if PRIVATE_KEY_RE.search(relative) and not relative.endswith('.template'):
+    if any(pattern.search(relative) for pattern in PRIVATE_KEY_PATTERNS) and not relative.endswith('.template'):
         findings.append(Finding(relative, 'private key or generated client config filename'))
     return findings
 

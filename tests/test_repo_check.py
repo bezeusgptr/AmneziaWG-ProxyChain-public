@@ -25,3 +25,15 @@ def test_repo_check_flags_private_key_marker_inside_filename(tmp_path):
     (tmp_path / 'archived_private_key.txt').write_text('redacted')
 
     assert 'private key or generated client config filename' in reasons(scan_repo(tmp_path))
+
+
+def test_repo_check_flags_generated_client_config_filename(tmp_path):
+    (tmp_path / 'client-alice.conf').write_text('redacted')
+
+    assert 'private key or generated client config filename' in reasons(scan_repo(tmp_path))
+
+
+def test_repo_check_ignores_unrelated_client_filename(tmp_path):
+    (tmp_path / 'client-notes.txt').write_text('redacted')
+
+    assert scan_repo(tmp_path) == []
