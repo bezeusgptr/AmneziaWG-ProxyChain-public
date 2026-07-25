@@ -32,6 +32,7 @@ DEFAULT_CLIENT_DNS = '10.8.0.1'
 # some paths/CDNs when the client is behind another router or VPN hop.
 DEFAULT_CLIENT_MTU = 1280
 DEFAULT_CLIENT_ALLOWED_IPS = '0.0.0.0/0'
+PEER_BY_NAME_QUERY = 'SELECT * FROM peers WHERE name = ?'
 
 
 @dataclass(frozen=True)
@@ -61,7 +62,7 @@ def add_peer(db_path, name: str, *, address: str | None = None, client_type='cli
         conn.execute('''INSERT INTO peers(name, public_key, address, enabled, client_type, platform, export_profile, notes)
                         VALUES (?, ?, ?, 1, ?, ?, ?, ?)''',
                      (name, pair.public_key, addr, client_type, platform, export_profile, notes))
-        peer = _rowdict(conn.execute('SELECT * FROM peers WHERE name = ?', (name,)).fetchone())
+        peer = _rowdict(conn.execute(PEER_BY_NAME_QUERY, (name,)).fetchone())
     return PeerAddResult(peer=peer, private_key=pair.private_key, client_config=render_client_config(peer, pair.private_key, server_public_key=server_public_key, server_endpoint=server_endpoint))
 
 
@@ -72,7 +73,7 @@ def list_peers(db_path) -> list[dict[str, Any]]:
 
 def get_peer(db_path, name: str) -> dict[str, Any] | None:
     with connect(db_path) as conn:
-        return _rowdict(conn.execute('SELECT * FROM peers WHERE name = ?', (name,)).fetchone())
+        return _rowdict(conn.execute(PEER_BY_NAME_QUERY, (name,)).fetchone())
 
 
 def set_enabled(db_path, name: str, enabled: bool) -> bool:
@@ -94,7 +95,7 @@ def rotate_peer(db_path, name: str, *, keygen: KeyGenerator | None = None, serve
         cur = conn.execute('UPDATE peers SET public_key = ?, enabled = 1, disabled_at = NULL WHERE name = ?', (pair.public_key, name))
         if cur.rowcount == 0:
             raise KeyError(name)
-        peer = _rowdict(conn.execute('SELECT * FROM peers WHERE name = ?', (name,)).fetchone())
+        peer = _rowdict(conn.execute(PEER_BY_NAME_QUERY, (name,)).fetchone())
     return PeerAddResult(peer=peer, private_key=pair.private_key, client_config=render_client_config(peer, pair.private_key, server_public_key=server_public_key, server_endpoint=server_endpoint))
 
 

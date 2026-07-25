@@ -15,8 +15,15 @@ services:
       - ./server-ru/entrypoint.sh:/entrypoint.sh
       - ./server-ru/awg0.conf.template:/config/awg0.conf.template:ro
       - ./server-ru/ru-domains.txt:/config/ru-domains.txt:ro
+      - ./scripts/vpnchain-bittorrent-policy.sh:/usr/local/sbin/vpnchain-bittorrent-policy:ro
+      - ./policy:/etc/vpnchain/bittorrent-policy:ro
+      - server-ru-policy-state:/run/vpnchain-bittorrent-policy
       - server-ru-keys:/etc/amnezia/amneziawg
     environment:
+      # Без явного opt-in политика не меняет разрешённый VPN-трафик.
+      - VPNCHAIN_BT_POLICY_MODE=${VPNCHAIN_BT_POLICY_MODE:-disabled}
+      - VPNCHAIN_BT_POLICY_ROLE=ru
+      - VPNCHAIN_BT_ALLOWLIST=/etc/vpnchain/bittorrent-policy/allowed-egress.policy
       # awg1.conf для RU uplink поставляется готовым файлом, сгенерированным на AM.
       # Ключ клиента для Peer-секции awg0
       - CLIENT_PUB_KEY
@@ -58,8 +65,15 @@ services:
     volumes:
       - ./server-am/entrypoint.sh:/entrypoint.sh
       - ./server-am/awg0.conf.template:/config/awg0.conf.template:ro
+      - ./scripts/vpnchain-bittorrent-policy.sh:/usr/local/sbin/vpnchain-bittorrent-policy:ro
+      - ./policy:/etc/vpnchain/bittorrent-policy:ro
+      - server-am-policy-state:/run/vpnchain-bittorrent-policy
       - server-am-keys:/etc/amnezia/amneziawg
     environment:
+      # Должен совпадать с RU только после отдельного rollout-решения.
+      - VPNCHAIN_BT_POLICY_MODE=${VPNCHAIN_BT_POLICY_MODE:-disabled}
+      - VPNCHAIN_BT_POLICY_ROLE=am
+      - VPNCHAIN_BT_ALLOWLIST=/etc/vpnchain/bittorrent-policy/allowed-egress.policy
       # Ключ Сервера РФ для Peer-секции awg0
       - RU_PUB_KEY
     restart: unless-stopped
@@ -72,4 +86,6 @@ services:
 volumes:
   server-ru-keys:
   server-am-keys:
+  server-ru-policy-state:
+  server-am-policy-state:
 

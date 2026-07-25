@@ -322,15 +322,12 @@ install_webui_service() {
   sed "s|@@REPO@@|$REPO|g" "$SERVICE_TPL" > "$SYSTEMD_SERVICE"
   chmod 644 "$SYSTEMD_SERVICE"
   _webui_port="${EFFECTIVE_WEBUI_PORT:-8080}"
-  if command -v iptables >/dev/null 2>&1; then
-    iptables -C INPUT -p tcp --dport "$_webui_port" -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport "$_webui_port" -j ACCEPT
-    log "Открыт TCP-порт $_webui_port в iptables (INPUT)"
-  fi
   systemctl daemon-reload
   systemctl enable vpnchain-webui.service
   systemctl restart vpnchain-webui.service
-  log "WebUI service установлен, включён и запущен на порту $_webui_port"
-  log "Откройте в браузере: http://<RU_HOST>:$_webui_port  (логин из VPNCHAIN_WEBUI_AUTH)"
+  log "WebUI service установлен и слушает только 127.0.0.1:$_webui_port"
+  log "Защищённый доступ: ssh -L ${_webui_port}:127.0.0.1:${_webui_port} root@<RU_HOST>"
+  log "После подключения откройте локально: http://127.0.0.1:$_webui_port"
 }
 
 if [ "$APPLY" -eq 0 ]; then
@@ -339,7 +336,7 @@ if [ "$APPLY" -eq 0 ]; then
   log "Будет выполнено: ${COMPOSE[*]} --env-file $ENV_OUT -f $COMPOSE_FILE --profile $ROLE up -d --build server-$ROLE"
   [ "$GENERATE_RU_UPLINK" -eq 0 ] || log "Будет создан RU uplink config: $OUTPUT, а AM добавит peer 10.9.0.2/32"
   [ -z "$RU_UPLINK_CONF" ] || log "Будет установлен готовый RU uplink config в awg-ru:/etc/amnezia/amneziawg/awg1.conf"
-  [ -z "$WEBUI_AUTH" ] || log "WebUI будет установлен с Basic Auth на порту ${WEBUI_PORT:-8080} (systemd service)"
+  [ -z "$WEBUI_AUTH" ] || log "WebUI будет установлен с Basic Auth только на localhost:${WEBUI_PORT:-8080}; доступ — через SSH tunnel"
 else
   [ "$missing" -eq 0 ] || fail "refusing --apply with missing required prerequisites"
   mkdir -p "$CONFIG_DIR" "$RUNTIME_DIR/backups" "$RUNTIME_DIR/generated" "$RUNTIME_DIR/tmp"

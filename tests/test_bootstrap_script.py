@@ -1,8 +1,11 @@
+import os
 import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / 'scripts' / 'vpnchain-bootstrap.sh'
+WEBUI_START_SCRIPT = ROOT / 'scripts' / 'vpnchain-webui-start.sh'
+WEBUI_SERVICE = ROOT / 'systemd' / 'vpnchain-webui.service'
 
 
 def run_script(*args):
@@ -92,3 +95,29 @@ def test_bootstrap_reads_existing_env_only_when_readable():
     assert 'existing_ru_pub_key=""' in script
     assert 'if [ -r "$ENV_OUT" ]; then' in script
     assert 'existing_ru_pub_key="$(sed -n' in script
+
+
+def test_webui_service_binds_to_loopback_only():
+    script = WEBUI_START_SCRIPT.read_text()
+
+    assert '--host 127.0.0.1' in script
+    assert '--host 0.0.0.0' not in script
+
+
+def test_webui_service_execstart_target_is_executable():
+    exec_start = next(
+        line.removeprefix('ExecStart=')
+        for line in WEBUI_SERVICE.read_text().splitlines()
+        if line.startswith('ExecStart=')
+    )
+    exec_start_target = Path(exec_start.replace('@@REPO@@', str(ROOT)))
+
+    assert exec_start_target.is_file()
+    assert os.access(exec_start_target, os.X_OK)
+
+
+def test_bootstrap_webui_uses_ssh_tunnel_without_opening_firewall():
+    script = SCRIPT.read_text()
+
+    assert 'iptables -I INPUT' not in script
+    assert 'ssh -L ${_webui_port}:127.0.0.1:${_webui_port}' in script

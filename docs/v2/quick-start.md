@@ -330,10 +330,16 @@ sudo scripts/vpnchain-bootstrap.sh   --role ru   --ru-uplink-conf /etc/vpnchain/
 Bootstrap выполнит автоматически:
 - сохранит credentials в `/etc/vpnchain/vpnchain.env` (`VPNCHAIN_WEBUI_AUTH=admin:strongpassword`)
 - установит `/etc/systemd/system/vpnchain-webui.service`
-- откроет TCP-порт 8080 в iptables
+- привяжет WebUI только к `127.0.0.1:8080`, не открывая порт в iptables
 - запустит service: `systemctl enable --now vpnchain-webui`
 
-Откройте в браузере: `http://<RU_PUBLIC_HOST_OR_IP>:8080`
+Создайте защищённый туннель с рабочего компьютера:
+
+```bash
+ssh -L 8080:127.0.0.1:8080 root@<RU_PUBLIC_HOST_OR_IP>
+```
+
+После подключения откройте в браузере: `http://127.0.0.1:8080`.
 
 Если `VPNCHAIN_WEBUI_AUTH` уже есть в `/etc/vpnchain/vpnchain.env`, при последующих запусках bootstrap WebUI стартует автоматически без повторного указания `--webui-auth`.
 
@@ -349,9 +355,9 @@ systemctl restart vpnchain-webui
 journalctl -u vpnchain-webui -n 50 --no-pager
 ```
 
-### Доступ через SSH forwarding (если WebUI только локально)
+### Доступ через SSH forwarding
 
-Если хотите запустить WebUI только на localhost без открытия порта наружу, не используйте bootstrap — запустите вручную:
+Bootstrap и systemd-сервис всегда запускают WebUI только на localhost. Для ручного запуска используйте ту же безопасную привязку:
 
 ```bash
 set -a; . /etc/vpnchain/vpnchain.env; set +a
@@ -366,7 +372,7 @@ ssh -L 8080:127.0.0.1:8080 root@<RU_PUBLIC_HOST_OR_IP>
 
 ### Безопасность
 
-WebUI, установленный через bootstrap, открыт наружу (`--host 0.0.0.0`) и защищён Basic Auth. Используйте надёжный пароль. При необходимости дополнительно ограничьте доступ через iptables.
+WebUI, установленный через bootstrap, не публикуется наружу: он слушает только `127.0.0.1`. Basic Auth не шифрует трафик и не заменяет TLS, поэтому доступ выполняется через зашифрованный SSH tunnel. Для намеренной публикации используйте обратный прокси с TLS, авторизацией и ограничением доступа; не открывайте встроенный HTTP-сервер напрямую.
 
 ## 10. Мониторинг
 

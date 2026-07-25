@@ -1,0 +1,8 @@
+FROM alpine:3.19
+
+RUN apk add --no-cache bash iproute2 iptables python3
+
+COPY scripts/vpnchain-bittorrent-policy.sh /usr/local/sbin/vpnchain-bittorrent-policy
+RUN chmod 0755 /usr/local/sbin/vpnchain-bittorrent-policy
+
+ENTRYPOINT ["/bin/bash"]
