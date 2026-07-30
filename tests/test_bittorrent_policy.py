@@ -106,14 +106,26 @@ def test_repository_wiring_is_read_only_and_default_disabled():
     assert 'server-am-policy-state:/run/vpnchain-bittorrent-policy' in compose
 
 
-def test_policy_allowlist_contains_no_active_destinations():
+def test_policy_allowlist_contains_strict_web_dns_allowlist_only():
     active = [
         line
         for line in ALLOWLIST.read_text().splitlines()
         if line.strip() and not line.lstrip().startswith('#')
     ]
 
-    assert active == []
+    assert active == [
+        'tcp 0.0.0.0/1 53',
+        'udp 0.0.0.0/1 53',
+        'tcp 0.0.0.0/1 80',
+        'tcp 0.0.0.0/1 443',
+        'udp 0.0.0.0/1 443',
+        'tcp 128.0.0.0/1 53',
+        'udp 128.0.0.0/1 53',
+        'tcp 128.0.0.0/1 80',
+        'tcp 128.0.0.0/1 443',
+        'udp 128.0.0.0/1 443',
+    ]
+    assert all(not line.endswith(('6881', '6882', '51413')) for line in active)
 
 
 def test_loader_has_atomic_backup_readback_rollback_and_ipv6_fail_closed():

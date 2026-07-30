@@ -18,9 +18,13 @@ def test_duplicate_peer_constraints(tmp_path):
     from vpnchain.keys import KeyGenerator
     db = tmp_path / 'vpnchain.sqlite'
     init_db(db)
-    add_peer(db, 'alice', keygen=KeyGenerator(seed='a'))
+    server = {
+        'server_public_key': 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=',
+        'server_endpoint': 'ru.example.test:51820',
+    }
+    add_peer(db, 'alice', keygen=KeyGenerator(seed='a'), **server)
     try:
-        add_peer(db, 'alice', keygen=KeyGenerator(seed='b'))
+        add_peer(db, 'alice', keygen=KeyGenerator(seed='b'), **server)
     except sqlite3.IntegrityError:
         pass
     else:
