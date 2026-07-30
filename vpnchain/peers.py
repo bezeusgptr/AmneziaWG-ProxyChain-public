@@ -5,6 +5,7 @@ import binascii
 import ipaddress
 import os
 import re
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -43,9 +44,15 @@ SERVER_ENDPOINT_ENV = 'VPNCHAIN_SERVER_ENDPOINT'
 _PUBLIC_KEY_RE = re.compile(r'^[A-Za-z0-9+/]{43}=$')
 _DNS_NAME_RE = re.compile(r'^(?=.{1,253}\.?$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.?$')
 _BRACKETED_ENDPOINT_RE = re.compile(r'^\[([^]]+)]:(\d+)$')
+DEFAULT_RUNTIME_AWG_CONTAINER = 'awg-ru'
+DEFAULT_RUNTIME_AWG_INTERFACE = 'awg0'
 
 
 class ServerRuntimeConfigError(KeyGenerationError, ValueError):
+    pass
+
+
+class PeerRuntimeSyncError(RuntimeError):
     pass
 
 
@@ -124,6 +131,81 @@ def rotate_peer(db_path, name: str, *, keygen: KeyGenerator | None = None, serve
 def schedule_cleanup(conn, path: str, ttl_minutes: int = 15) -> None:
     delete_after = (datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)).replace(microsecond=0).isoformat()
     conn.execute('INSERT INTO cleanup_jobs(path, delete_after, status) VALUES (?, ?, ?)', (path, delete_after, 'pending'))
+
+
+def runtime_sync_enabled() -> bool:
+    return os.environ.get('VPNCHAIN_RUNTIME_SYNC', '').lower() in {'1', 'true', 'yes', 'on'}
+
+
+def sync_peer_runtime(peer: dict[str, Any], *, remove: bool = False) -> None:
+    if not runtime_sync_enabled():
+        return
+    public_key = peer['public_key']
+    address = peer['address']
+    interface = os.environ.get('VPNCHAIN_RUNTIME_AWG_INTERFACE', DEFAULT_RUNTIME_AWG_INTERFACE)
+    container = os.environ.get('VPNCHAIN_RUNTIME_AWG_CONTAINER', DEFAULT_RUNTIME_AWG_CONTAINER)
+    config_path_value = os.environ.get('VPNCHAIN_RUNTIME_AWG_CONFIG')
+    if not config_path_value:
+        raise PeerRuntimeSyncError('VPNCHAIN_RUNTIME_AWG_CONFIG must point to the persistent awg config when runtime sync is enabled')
+    config_path = Path(config_path_value)
+    _sync_runtime_peer(container, interface, public_key, address, remove=remove)
+    _sync_persistent_peer_config(config_path, public_key, address, remove=remove)
+
+
+def _sync_runtime_peer(container: str, interface: str, public_key: str, address: str, *, remove: bool) -> None:
+    if remove:
+        cmd = ['docker', 'exec', container, 'awg', 'set', interface, 'peer', public_key, 'remove']
+    else:
+        cmd = ['docker', 'exec', container, 'awg', 'set', interface, 'peer', public_key, 'allowed-ips', address, 'persistent-keepalive', '25']
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or '').strip()
+        raise PeerRuntimeSyncError(f'failed to sync awg runtime peer: {detail}')
+
+
+def _sync_persistent_peer_config(config_path: Path, public_key: str, address: str, *, remove: bool) -> None:
+    if not config_path.exists():
+        raise PeerRuntimeSyncError(f'awg config not found: {config_path}')
+    original = config_path.read_text(encoding='utf-8')
+    updated = _remove_peer_blocks(original, public_key=public_key, address=address)
+    if not remove:
+        block = '\n'.join([
+            '[Peer]',
+            f'PublicKey = {public_key}',
+            f'AllowedIPs = {address}',
+            'PersistentKeepalive = 25',
+            '',
+        ])
+        if updated and not updated.endswith('\n'):
+            updated += '\n'
+        if updated and not updated.endswith('\n\n'):
+            updated += '\n'
+        updated += block
+    if updated != original:
+        config_path.write_text(updated, encoding='utf-8')
+
+
+def _remove_peer_blocks(text: str, *, public_key: str, address: str) -> str:
+    lines = text.splitlines()
+    kept: list[str] = []
+    idx = 0
+    while idx < len(lines):
+        if lines[idx].strip() != '[Peer]':
+            kept.append(lines[idx])
+            idx += 1
+            continue
+        block = [lines[idx]]
+        idx += 1
+        while idx < len(lines) and lines[idx].strip() != '[Peer]':
+            block.append(lines[idx])
+            idx += 1
+            if block[-1].strip() == '':
+                break
+        block_text = '\n'.join(block)
+        if f'PublicKey = {public_key}' in block_text or f'AllowedIPs = {address}' in block_text:
+            continue
+        kept.extend(block)
+    return ('\n'.join(kept).rstrip() + '\n') if kept else ''
 
 
 def render_client_config(peer: dict[str, Any], private_key: str, *, server_public_key: str | None = None, server_endpoint: str | None = None, _resolved_runtime: tuple[str, str] | None = None) -> str:

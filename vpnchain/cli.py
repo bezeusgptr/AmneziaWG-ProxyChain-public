@@ -8,7 +8,7 @@ from pathlib import Path
 from .db import connect, init_db
 from .paths import DEFAULT_DB, DEFAULT_TTL_MINUTES, UnsafeOutputPath, ensure_output_path_safe, write_private_file
 from .keys import KeyGenerationError
-from .peers import DEFAULT_EXPORT_PROFILE, add_peer, get_peer, list_peers, remove_peer, rotate_peer, schedule_cleanup, set_enabled
+from .peers import DEFAULT_EXPORT_PROFILE, PeerRuntimeSyncError, add_peer, get_peer, list_peers, remove_peer, rotate_peer, schedule_cleanup, set_enabled, sync_peer_runtime
 from .webui import serve as serve_webui
 from .repo_check import scan_repo
 
@@ -133,6 +133,11 @@ def _handle_peer_add(args: argparse.Namespace) -> int:
     except KeyGenerationError as exc:
         print(str(exc), file=sys.stderr)
         return 1
+    try:
+        sync_peer_runtime(result.peer)
+    except PeerRuntimeSyncError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     _emit_or_write(
         args.db,
         result.client_config,
@@ -165,14 +170,30 @@ def _handle_peer_enabled(args: argparse.Namespace) -> int:
     if not set_enabled(args.db, args.name, args.peer_cmd == 'enable'):
         print(PEER_NOT_FOUND, file=sys.stderr)
         return 1
+    peer = get_peer(args.db, args.name)
+    assert peer is not None
+    try:
+        sync_peer_runtime(peer, remove=args.peer_cmd != 'enable')
+    except PeerRuntimeSyncError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     print(f'{args.peer_cmd}d {args.name}')
     return 0
 
 
 def _handle_peer_remove(args: argparse.Namespace) -> int:
     init_db(args.db)
+    peer = get_peer(args.db, args.name)
+    if not peer:
+        print(PEER_NOT_FOUND, file=sys.stderr)
+        return 1
     if not remove_peer(args.db, args.name):
         print(PEER_NOT_FOUND, file=sys.stderr)
+        return 1
+    try:
+        sync_peer_runtime(peer, remove=True)
+    except PeerRuntimeSyncError as exc:
+        print(str(exc), file=sys.stderr)
         return 1
     print(f'removed {args.name}')
     return 0
@@ -192,6 +213,11 @@ def _handle_peer_rotate(args: argparse.Namespace) -> int:
         print(PEER_NOT_FOUND, file=sys.stderr)
         return 1
     except KeyGenerationError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    try:
+        sync_peer_runtime(result.peer)
+    except PeerRuntimeSyncError as exc:
         print(str(exc), file=sys.stderr)
         return 1
     _emit_or_write(args.db, result.client_config, output_path, not output_path, args.ttl_minutes)

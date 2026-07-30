@@ -361,3 +361,58 @@ def test_default_peer_addresses_match_ru_awg0_subnet(tmp_path):
     assert first.peer['address'] == '10.8.0.3/32'
     assert second.peer['address'] == '10.8.0.4/32'
     assert 'Address = 10.8.0.3/32' in first.client_config
+
+
+def test_sync_peer_runtime_updates_awg_runtime_and_persistent_config(tmp_path, monkeypatch):
+    peer = {'public_key': 'PUBKEY123', 'address': '10.8.0.24/32'}
+    config = tmp_path / 'awg0.conf'
+    config.write_text('[Interface]\nAddress = 10.8.0.1/24\n\n')
+    calls = []
+
+    def fake_run(cmd, capture_output, text, check):
+        calls.append(cmd)
+        class Result:
+            returncode = 0
+            stdout = ''
+            stderr = ''
+        return Result()
+
+    monkeypatch.setenv('VPNCHAIN_RUNTIME_SYNC', '1')
+    monkeypatch.setenv('VPNCHAIN_RUNTIME_AWG_CONFIG', str(config))
+    monkeypatch.setattr(peers_module.subprocess, 'run', fake_run)
+
+    peers_module.sync_peer_runtime(peer)
+
+    assert calls == [[
+        'docker', 'exec', 'awg-ru', 'awg', 'set', 'awg0', 'peer', 'PUBKEY123',
+        'allowed-ips', '10.8.0.24/32', 'persistent-keepalive', '25',
+    ]]
+    text = config.read_text()
+    assert 'PublicKey = PUBKEY123' in text
+    assert 'AllowedIPs = 10.8.0.24/32' in text
+
+
+def test_sync_peer_runtime_remove_deletes_peer_block(tmp_path, monkeypatch):
+    peer = {'public_key': 'PUBKEY123', 'address': '10.8.0.24/32'}
+    config = tmp_path / 'awg0.conf'
+    config.write_text(
+        '[Interface]\nAddress = 10.8.0.1/24\n\n'
+        '[Peer]\nPublicKey = PUBKEY123\nAllowedIPs = 10.8.0.24/32\nPersistentKeepalive = 25\n\n'
+    )
+
+    def fake_run(cmd, capture_output, text, check):
+        class Result:
+            returncode = 0
+            stdout = ''
+            stderr = ''
+        return Result()
+
+    monkeypatch.setenv('VPNCHAIN_RUNTIME_SYNC', '1')
+    monkeypatch.setenv('VPNCHAIN_RUNTIME_AWG_CONFIG', str(config))
+    monkeypatch.setattr(peers_module.subprocess, 'run', fake_run)
+
+    peers_module.sync_peer_runtime(peer, remove=True)
+
+    text = config.read_text()
+    assert 'PublicKey = PUBKEY123' not in text
+    assert 'AllowedIPs = 10.8.0.24/32' not in text
