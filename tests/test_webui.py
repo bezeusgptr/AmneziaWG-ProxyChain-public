@@ -1,5 +1,6 @@
 import json
 import subprocess
+import pytest
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -8,6 +9,13 @@ from vpnchain.db import init_db
 from vpnchain import webui
 from vpnchain.webui import CommandPeerBackend, RemoteCommandError, SshPeerBackend, VpnchainWebUI, make_handler
 from http.server import ThreadingHTTPServer
+
+
+@pytest.fixture(autouse=True)
+def server_runtime(monkeypatch, tmp_path):
+    monkeypatch.setenv('VPNCHAIN_RUNTIME_CONFIG', str(tmp_path / 'missing-default-runtime.env'))
+    monkeypatch.setenv('VPNCHAIN_SERVER_PUBLIC_KEY', 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=')
+    monkeypatch.setenv('VPNCHAIN_SERVER_ENDPOINT', 'ru.example.test:51820')
 
 
 def _server(app):

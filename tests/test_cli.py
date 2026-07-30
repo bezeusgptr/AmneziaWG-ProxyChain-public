@@ -6,8 +6,20 @@ import sys
 from vpnchain import cli
 
 
-def run_cli(*args, db):
+TEST_SERVER_PUBLIC_KEY = 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8='
+TEST_SERVER_ENDPOINT = 'ru.example.test:51820'
+
+
+def run_cli(*args, db, with_server_runtime=True):
     env = {**os.environ, 'VPNCHAIN_TEST_KEY_SEED': 'cli-test'}
+    env['VPNCHAIN_RUNTIME_CONFIG'] = str(db.parent / 'missing-vpnchain.env')
+    if with_server_runtime:
+        env['VPNCHAIN_SERVER_PUBLIC_KEY'] = TEST_SERVER_PUBLIC_KEY
+        env['VPNCHAIN_SERVER_ENDPOINT'] = TEST_SERVER_ENDPOINT
+    else:
+        env.pop('VPNCHAIN_SERVER_PUBLIC_KEY', None)
+        env.pop('VPNCHAIN_SERVER_ENDPOINT', None)
+
     return subprocess.run(
         [sys.executable, '-m', 'vpnchain', '--db', str(db), *args],
         text=True,
@@ -72,8 +84,22 @@ def test_cli_output_safety_preflight(tmp_path):
     assert 'git worktree' in unsafe.stderr
 
 
+def test_cli_add_fails_cleanly_without_server_runtime(tmp_path):
+    db = tmp_path / 'vpnchain.sqlite'
+
+    result = run_cli('peer', 'add', 'alice', '--print-once', db=db, with_server_runtime=False)
+
+    assert result.returncode == 1
+    assert 'server PublicKey and Endpoint' in result.stderr
+    assert 'Traceback' not in result.stderr
+    assert '<server-' not in result.stdout
+
+
 def test_cli_main_direct_peer_lifecycle(tmp_path, capsys, monkeypatch):
     monkeypatch.setenv('VPNCHAIN_TEST_KEY_SEED', 'cli-direct')
+    monkeypatch.setenv('VPNCHAIN_RUNTIME_CONFIG', str(tmp_path / 'missing-vpnchain.env'))
+    monkeypatch.setenv('VPNCHAIN_SERVER_PUBLIC_KEY', TEST_SERVER_PUBLIC_KEY)
+    monkeypatch.setenv('VPNCHAIN_SERVER_ENDPOINT', TEST_SERVER_ENDPOINT)
     db = str(tmp_path / 'vpnchain.sqlite')
 
     assert cli.main(['--db', db, 'init-db']) == 0
