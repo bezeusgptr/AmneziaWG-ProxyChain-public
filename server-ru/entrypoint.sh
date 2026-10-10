@@ -24,19 +24,14 @@ SERVER_PRIV_KEY=$(cat /etc/amnezia/amneziawg/server_private_key)
 export SERVER_PRIV_KEY
 
 # Подстановка переменных окружения в шаблон конфига awg0.
-# v2 manager can persist generated peers directly in /etc/amnezia/amneziawg/awg0.conf.
-# Preserve an existing runtime config on container restart so peer sections are not
-# wiped when CLIENT*_PUB_KEY variables are absent from docker compose env.
-if [ ! -s /etc/amnezia/amneziawg/awg0.conf ] || ! grep -q '^PrivateKey = ' /etc/amnezia/amneziawg/awg0.conf; then
-    envsubst < /config/awg0.conf.template > /etc/amnezia/amneziawg/awg0.conf
+# Rebuild it on every start so the environment slots remain authoritative and
+# removing or rotating a CLIENT*_PUB_KEY revokes the persisted peer.
+envsubst < /config/awg0.conf.template > /etc/amnezia/amneziawg/awg0.conf
 
-    # Удаляем секции [Peer], если PublicKey остался пустым
-    sed -i '/^\[Peer\]/{N;/\nPublicKey = *$/{N;d;}}' /etc/amnezia/amneziawg/awg0.conf
-    sed -i '/^\[Peer\]/{N;/\nPublicKey = *$/d;}' /etc/amnezia/amneziawg/awg0.conf
-    sed -i '/^PublicKey = *$/d' /etc/amnezia/amneziawg/awg0.conf
-else
-    echo "Preserving existing /etc/amnezia/amneziawg/awg0.conf"
-fi
+# Удаляем секции [Peer], если PublicKey остался пустым
+sed -i '/^\[Peer\]/{N;/\nPublicKey = *$/{N;d;}}' /etc/amnezia/amneziawg/awg0.conf
+sed -i '/^\[Peer\]/{N;/\nPublicKey = *$/d;}' /etc/amnezia/amneziawg/awg0.conf
+sed -i '/^PublicKey = *$/d' /etc/amnezia/amneziawg/awg0.conf
 
 # awg1 больше не генерируется из LEGACY_AM_PUB_KEY/LEGACY_AM_ENDPOINT.
 # В v2 uplink-flow AM/exit создаёт готовый client config для RU, а bootstrap
